@@ -296,6 +296,14 @@ class SelfdriveD:
     elif self.sm['modelV2'].meta.laneChangeState in (LaneChangeState.laneChangeStarting,
                                                     LaneChangeState.laneChangeFinishing):
       self.events.add(EventName.laneChange)
+      
+      # laneChangeStarting 중 BSD 감지 시 bsdWarning 알림 (laneChangeBsd=1 취소 시)
+      if self.sm['modelV2'].meta.laneChangeState == LaneChangeState.laneChangeStarting:
+        direction = self.sm['modelV2'].meta.laneChangeDirection
+        if (CS.leftBlindspot and direction == LaneChangeDirection.left) or \
+           (CS.rightBlindspot and direction == LaneChangeDirection.right):
+          self.events.add(EventName.laneChangeBlocked)
+                                                
 
     for i, pandaState in enumerate(self.sm['pandaStates']):
       # All pandas must match the list of safetyConfigs, and if outside this list, must be silent or noOutput
