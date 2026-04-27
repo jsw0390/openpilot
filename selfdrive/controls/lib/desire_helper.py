@@ -320,7 +320,7 @@ class DesireHelper:
 
         if self.lane_change_state == LaneChangeState.off:
           if desire_enabled and not self.prev_desire_enabled and not below_lane_change_speed and side is not None:
-            bsd_block = (self.laneChangeBsd == 1) and (side.bsd_hold_counter > 0)
+            bsd_block = (self.laneChangeBsd >= 0) and (side.bsd_hold_counter > 0)  # 0과 1 모두 차단
             if not bsd_block:
               self.lane_change_state = LaneChangeState.preLaneChange
               self.lane_change_ll_prob = 1.0
@@ -345,7 +345,7 @@ class DesireHelper:
 
             # BSD config
             ignore_bsd = (self.laneChangeBsd < 0)
-            block_lanechange_bsd = (self.laneChangeBsd == 1)
+            block_lanechange_bsd = (self.laneChangeBsd == 1)  # 토크 override 차단은 1만 해당, 0은 허용 유지
             bsd_active = (side.bsd_hold_counter > 0) and (not ignore_bsd)
 
             # 차선이 일정시간 이상 안보이면 auto 허용(원본 유지)
@@ -370,7 +370,7 @@ class DesireHelper:
                   if torque_applied and not (bsd_active and block_lanechange_bsd):
                     self.lane_change_state = LaneChangeState.laneChangeStarting
                 elif bsd_active:
-                  if torque_applied and (not block_lanechange_bsd):
+                  if torque_applied and (not block_lanechange_bsd):  # 0: 토크 허용, 1: 토크도 차단
                     self.lane_change_state = LaneChangeState.laneChangeStarting
                 elif self.laneChangeNeedTorque > 0 or self.next_lane_change:
                   if torque_applied:
@@ -394,7 +394,7 @@ class DesireHelper:
           else:
             ignore_bsd = (self.laneChangeBsd < 0)
             bsd_active = (side.bsd_hold_counter > 0) and (not ignore_bsd)
-            if bsd_active and (self.laneChangeBsd == 1):
+            if bsd_active and (self.laneChangeBsd >= 0):  # 0과 1 모두 즉시 중단
               self.lane_change_state = LaneChangeState.off
               self.lane_change_direction = LaneChangeDirection.none
             else:
@@ -408,7 +408,7 @@ class DesireHelper:
           if self.lane_change_ll_prob > 0.99:
             self.lane_change_direction = LaneChangeDirection.none
             if desire_enabled:
-              bsd_block = (self.laneChangeBsd == 1) and (side is not None) and (side.bsd_hold_counter > 0)
+              bsd_block = (self.laneChangeBsd >= 0) and (side is not None) and (side.bsd_hold_counter > 0)  # 0과 1 모두 차단
               if not bsd_block:
                 self.lane_change_state = LaneChangeState.preLaneChange
                 self.next_lane_change = True
