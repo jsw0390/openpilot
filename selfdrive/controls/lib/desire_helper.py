@@ -389,18 +389,33 @@ class DesireHelper:
 
         elif self.lane_change_state == LaneChangeState.laneChangeStarting:
           if side is None:
-            self.lane_change_state = LaneChangeState.off
-            self.lane_change_direction = LaneChangeDirection.none
+            # 깜빡이 해제: 진행률에 따라 즉시 취소 or 부드럽게 마무리
+            if self.lane_change_ll_prob > 0.5:
+              # 초반 취소 → 즉시 off
+              self.lane_change_state = LaneChangeState.off
+              self.lane_change_direction = LaneChangeDirection.none
+            else:
+              # 후반 취소 → Finishing으로 부드럽게 마무리
+              self.lane_change_state = LaneChangeState.laneChangeFinishing
+              self.lane_change_ll_prob = 0.0
           else:
             ignore_bsd = (self.laneChangeBsd < 0)
             bsd_active = (side.bsd_hold_counter > 0) and (not ignore_bsd)
-            if bsd_active and (self.laneChangeBsd >= 0):  # 0과 1 모두 즉시 중단
-              self.lane_change_state = LaneChangeState.off
-              self.lane_change_direction = LaneChangeDirection.none
+            if bsd_active and (self.laneChangeBsd == 1):
+              # BSD 취소: 진행률에 따라 즉시 취소 or 부드럽게 마무리
+              if self.lane_change_ll_prob > 0.5:
+                # 초반 취소 → 즉시 off
+                self.lane_change_state = LaneChangeState.off
+                self.lane_change_direction = LaneChangeDirection.none
+              else:
+                # 후반 취소 → Finishing으로 부드럽게 마무리
+                self.lane_change_state = LaneChangeState.laneChangeFinishing
+                self.lane_change_ll_prob = 0.0
             else:
               self.lane_change_ll_prob = max(self.lane_change_ll_prob - 2 * DT_MDL, 0.0)
               if lane_change_prob < 0.02 and self.lane_change_ll_prob < 0.01:
                 self.lane_change_state = LaneChangeState.laneChangeFinishing
+
 
 
         elif self.lane_change_state == LaneChangeState.laneChangeFinishing:
