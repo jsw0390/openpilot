@@ -3107,14 +3107,6 @@ void ui_draw(UIState *s, ModelRenderer* model_renderer, int w, int h) {
     ui_resize(s, w, h);
   }
 
-  // NanoVG: 빈 프레임만 유지 (다른 코드에서 vg 참조 시 크래시 방지)
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  nvgBeginFrame(s->vg, s->fb_w, s->fb_h, 1.0f);
-  nvgEndFrame(s->vg);
-  glDisable(GL_BLEND);
-
-  // ThorVG 렌더링
   extern void tvg_draw(UIState *s, int w, int h);
   tvg_draw(s, w, h);
 
