@@ -995,10 +995,10 @@ function openAppDialog(options = {}) {
   const copyText = options.copyText || "";
   if (appDialogCopy) {
     appDialogCopy.hidden = !copyText;
-    appDialogCopy.textContent = LANG === "en" ? "Copy" : LANG === "zh" ? "复制" : "복사";
+    appDialogCopy.textContent = getUIText("copy", "Copy");
     appDialogCopy.onclick = copyText ? () => {
       copyToClipboard(copyText);
-      alert(LANG === "ko" ? "복사되었습니다" : LANG === "zh" ? "已复制" : "Copied");
+      alert(getUIText("copied", "Copied"));
     } : null;
   }
 
@@ -1185,9 +1185,7 @@ async function updateQuickLink(options = {}) {
 async function openQuickLink() {
   QUICK_LINK_URL = QUICK_LINK_FIXED_URL;
   renderQuickLinkUI();
-  const msg = LANG === "ko"
-    ? `CarrotMan을 여시겠습니까?\n\n${QUICK_LINK_FIXED_URL}`
-    : `${getUIText("open", "Open")} CarrotMan?\n\n${QUICK_LINK_FIXED_URL}`;
+  const msg = `${getUIText("open_carrotman_confirm", "Open {name}?", { name: "CarrotMan" })}\n\n${QUICK_LINK_FIXED_URL}`;
   const ok = await appConfirm(msg, { title: "CarrotMan" });
   if (!ok) return;
   window.open(QUICK_LINK_FIXED_URL, "_blank", "noopener");

@@ -811,7 +811,7 @@ function rtcUpdateFreezeWatchdog(pc, video) {
 
   const stallLimit = RTC_FREEZE_STATE.everDecodedFrame ? RTC_FREEZE_MAX_STALL_SAMPLES : RTC_INITIAL_FRAME_MAX_STALL_SAMPLES;
   if (RTC_FREEZE_STATE.stallSamples >= stallLimit) {
-    rtcScheduleFreezeRecovery(RTC_FREEZE_STATE.everDecodedFrame ? "video stalled, reconnecting..." : "no initial frame, reconnecting...");
+    rtcScheduleFreezeRecovery(RTC_FREEZE_STATE.everDecodedFrame ? getUIText("video_stalled_reconnecting", "Video stalled, reconnecting...") : getUIText("no_initial_frame_reconnecting", "No initial frame, reconnecting..."));
   }
 }
 
@@ -867,7 +867,7 @@ function rtcArmTrackTimeout(ms = 5000, expectedPc = RTC_PC) {
     }
     RTC_WAIT_TRACK_PC = null;
     rtcTrace("track_timeout", { timeoutMs: ms }, expectedPc);
-    rtcStatusSet("no track, retry...");
+    rtcStatusSet(getUIText("no_track_retry", "No track, retry..."));
     rtcCaptureVideoHoldFrame();
     if (RTC_PENDING_PC === expectedPc) {
       rtcClosePeer(expectedPc);
@@ -947,11 +947,11 @@ async function rtcConnectOnce(options = {}) {
       stopRtcPerfPolling();
       resetRtcPerfState();
       rtcResetFreezeWatchdog();
-      rtcStatusSet("reconnecting...");
+      rtcStatusSet(getUIText("reconnecting", "Reconnecting..."));
     } else {
       await rtcDisconnect({ keepVideo: true });
       previousPc = null;
-      rtcStatusSet("connecting...");
+      rtcStatusSet(getUIText("connecting", "Connecting..."));
     }
 
     const pc = new RTCPeerConnection({
@@ -1106,7 +1106,7 @@ async function rtcConnectOnce(options = {}) {
 
     await pc.setRemoteDescription({ type: answer.type || "answer", sdp: answer.sdp });
     rtcTrace("answer_applied", {}, pc);
-    rtcStatusSet("connected (waiting track...)");
+    rtcStatusSet(getUIText("connected_waiting_track", "Connected, waiting track..."));
     rtcArmTrackTimeout(6000, pc);
   } catch (e) {
     rtcTrace("connect_error", {
@@ -1140,7 +1140,7 @@ async function waitServerReady(timeoutMs = 8000) {
 
 window.CARROT_VISION_ACTIVE = false;
 window.CARROT_VISION_AVAILABLE = false;
-window.CARROT_VISION_DISABLED_MESSAGE = "DisableDM이 비활성화 되어있습니다.";
+window.CARROT_VISION_DISABLED_MESSAGE = getUIText("disable_dm_inactive", "DisableDM is inactive.");
 
 async function fetchDisableDmValue() {
   const r = await fetch("/api/params_bulk?names=DisableDM", { cache: "no-store" });
@@ -1194,7 +1194,7 @@ async function syncCarrotVisionAvailability() {
     updateCarrotVisionAvailabilityUi(available);
     return available;
   } catch (e) {
-    updateCarrotVisionAvailabilityUi(false, "DisableDM 상태를 확인할 수 없습니다.");
+    updateCarrotVisionAvailabilityUi(false, getUIText("disable_dm_check_failed", "Could not check DisableDM status."));
     return false;
   }
 }
@@ -1212,7 +1212,7 @@ window.CarrotVisionStart = async function() {
   const btn = document.getElementById("visionStartOverlay");
   if (btn) btn.style.display = "none";
 
-  rtcStatusSet("waiting server...");
+  rtcStatusSet(getUIText("waiting_server", "Waiting server..."));
   await waitServerReady(8000);
   syncCarrotRealtimeLifecycle(true);
 };

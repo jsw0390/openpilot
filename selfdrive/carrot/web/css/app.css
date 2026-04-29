@@ -1076,7 +1076,15 @@ body[data-page="tools"] .swipe-container,
 .tools-lang-menu__openMark {
   flex: 0 0 auto;
   color: var(--md-on-surface-var);
-  font-size: 15px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+}
+
+.tools-lang-menu__openMark svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .tools-scroll-stack {

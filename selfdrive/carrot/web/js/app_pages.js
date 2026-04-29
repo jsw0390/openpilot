@@ -153,7 +153,9 @@ function updateSettingCarEntryState(label) {
   const text = String(label || "").trim();
   const isEmpty = !text || text === "-";
   settingCarRow.classList.toggle("is-empty", isEmpty);
-  settingCarRow.setAttribute("aria-label", isEmpty ? "차량 선택 열기" : `${text} 차량 선택 열기`);
+  settingCarRow.setAttribute("aria-label", isEmpty
+    ? getUIText("open_car_select", "Open car select")
+    : getUIText("open_car_select_named", "Open car select for {name}", { name: text }));
 }
 
 function isMissingCarSelectionLabel(label) {
@@ -208,8 +210,8 @@ async function promptMissingCurrentCarSelection(values = null) {
   } catch {}
 
   try {
-    await appAlert("차량이 선택되어 있지 않습니다.\n설정에서 차량을 먼저 선택해주세요.", {
-      title: getUIText("car_select", "차량 선택"),
+    await appAlert(getUIText("missing_car_select", "No car is selected.\nPlease select a car in settings first."), {
+      title: getUIText("car_select", "Car Select"),
     });
 
     if (typeof showPage === "function") {
@@ -815,7 +817,7 @@ async function runOpenCarPickerFlow() {
   carPickerMode = "makers";
   carPickerMaker = null;
   syncCarPickerChrome();
-  appCarPickerMeta.textContent = "loading...";
+  appCarPickerMeta.textContent = getUIText("loading", "Loading...");
   appCarPickerList.innerHTML = "";
   await ensureCarsLoaded();
   renderCarPickerMakers();
@@ -861,7 +863,7 @@ async function loadCars(options = {}) {
     return ensureCarsLoaded();
   }
 
-  carMeta.textContent = "loading...";
+  carMeta.textContent = getUIText("loading", "Loading...");
   makerList.innerHTML = "";
   modelList.innerHTML = "";
   CURRENT_MAKER = null;
@@ -979,7 +981,7 @@ async function loadSettings(options = {}) {
   }
 
   if (!force && settingsLoadPromise) return settingsLoadPromise;
-  if (!background && meta) meta.textContent = "loading...";
+  if (!background && meta) meta.textContent = getUIText("loading", "Loading...");
 
   settingsLoadPromise = (async () => {
     const r = await fetch("/api/settings");
@@ -2307,7 +2309,11 @@ function renderToolsMeta() {
       option.setAttribute("aria-checked", item.lang === LANG ? "true" : "false");
       option.innerHTML = `
         <span>${escapeHtml(item.name)}</span>
-        <span class="tools-lang-menu__openMark" aria-hidden="true">↗</span>
+        <span class="tools-lang-menu__openMark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path fill="currentColor" d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14zm-9 4h6v2H7v8h8v-4h2v6H5z"/>
+          </svg>
+        </span>
       `;
       option.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -2394,11 +2400,15 @@ function buildToolsMetaInfoDialog(values = {}) {
   const dongleId = String(values.DongleId || "").trim();
   const serial = String(values.HardwareSerial || "").trim();
   const gitPullTime = formatToolsMetaDateTime(values.GitPullTime);
-  const labels = LANG === "en"
-    ? { branch: "Branch", commit: "Commit", deviceType: "Device", dongle: "Dongle ID", serial: "Serial", gitPull: "Recent update", position: "Position" }
-    : LANG === "zh"
-      ? { branch: "分支", commit: "提交", deviceType: "设备型号", dongle: "Dongle ID", serial: "序列号", gitPull: "最近更新", position: "安装角度" }
-      : { branch: "브랜치", commit: "커밋", deviceType: "기기", dongle: "동글ID", serial: "시리얼", gitPull: "최근 업데이트", position: "설치각도" };
+  const labels = {
+    branch: getUIText("branch", "Branch"),
+    commit: getUIText("commit", "Commit"),
+    deviceType: getUIText("device_type", "Device"),
+    dongle: getUIText("dongle_id", "Dongle ID"),
+    serial: getUIText("serial", "Serial"),
+    gitPull: getUIText("recent_update", "Recent update"),
+    position: getUIText("position", "Position"),
+  };
   const htmlEscape = typeof escapeHtml === "function"
     ? escapeHtml
     : (value) => String(value)
@@ -2451,6 +2461,10 @@ function buildToolsMetaPlainText(values = {}) {
 function rerenderPageLangUi() {
   renderToolsMeta();
   refreshToolsMetaInfo().catch(() => {});
+  if (CURRENT_PAGE === "logs") {
+    renderDashcamRoutes({ animate: false });
+    renderScreenrecordVideos?.({ animate: false });
+  }
 
   const terminalMetaEl = document.getElementById("terminalMeta");
   if (!terminalMetaEl) return;
@@ -2534,10 +2548,11 @@ async function syncDeviceLanguageOnce() {
       localStorage.setItem(SYNC_KEY, "1");
       // show notification after a short delay so the page finishes loading
       setTimeout(() => {
-        const msg = LANG === "ko"
-          ? "기기 언어를 변경했습니다.\n기기를 재부팅해야 적용됩니다."
-          : "Device language has been changed.\nPlease reboot the device to apply.";
-        openAppDialog({ mode: "alert", title: "Device Language", message: msg });
+        openAppDialog({
+          mode: "alert",
+          title: getUIText("device_lang", "Device Language"),
+          message: getUIText("device_lang_changed", "Device language has been changed.\nPlease reboot the device to apply."),
+        });
       }, 800);
       return;
     }
@@ -3015,7 +3030,7 @@ function initToolsPage() {
     out.setAttribute("role", "button");
     out.setAttribute("tabindex", "0");
     out.setAttribute("aria-expanded", "false");
-    out.setAttribute("aria-label", LANG === "ko" ? "로그창 펼치기 또는 접기" : "Expand or collapse log panel");
+    out.setAttribute("aria-label", getUIText("toggle_log_panel", "Expand or collapse log panel"));
     out.addEventListener("click", () => {
       const page = document.getElementById("pageTools");
       setToolsLogExpanded(!page?.classList.contains("tools-log-expanded"));
@@ -3047,7 +3062,7 @@ function initToolsPage() {
   initToolsLogPanel();
 
   bindOnce("btnDeviceInfo", async () => {
-    let title = LANG === "en" ? "Device Info" : LANG === "zh" ? "设备信息" : "기기정보";
+    let title = getUIText("device_info", "Device Info");
     
     try {
       if (!toolsMetaLastValues && !toolsMetaLoadPromise) {
@@ -3113,7 +3128,7 @@ function initToolsPage() {
     const mode = await openAppDialog({
       mode: "choice",
       title: "git reset",
-      message: "HEAD 기준 리셋 방식을 선택하세요.",
+      message: getUIText("git_reset_head_prompt", "Select reset mode based on HEAD."),
       cancelLabel: UI_STRINGS[LANG].cancel || "Cancel",
       choices: [
         { label: "reset hard", value: "hard", danger: true },
@@ -3126,30 +3141,28 @@ function initToolsPage() {
   });
 
   bindOnce("btnGitRemote", async () => {
-    const title = LANG === "ko" ? "저장소 주소 변경" : "Change Repository";
+    const title = getUIText("git_remote_title", "Change Repository");
     let defaultUrl = "";
     try {
       const v = await bulkGet(["GitRemote"]);
       if (v && v.GitRemote) defaultUrl = String(v.GitRemote).trim();
     } catch (e) {}
 
-    const msg = LANG === "ko"
-      ? `현재 주소: ${defaultUrl}\n\n새로운 GitHub 저장소 주소를 붙여넣으세요.\n(해당 저장소로 연결을 덮어씁니다)`
-      : `Current: ${defaultUrl}\n\nEnter new GitHub repository URL.\n(This will overwrite the current connection)`;
+    const msg = getUIText(
+      "git_remote_prompt",
+      "Current: {url}\n\nEnter new GitHub repository URL.\n(This will overwrite the current connection)",
+      { url: defaultUrl }
+    );
     
-    const newUrl = await appPrompt(msg, defaultUrl, { title });
+    const newUrl = await appPrompt(msg, { title, defaultValue: defaultUrl });
     if (!newUrl || newUrl.trim() === "" || newUrl.trim() === defaultUrl) return;
 
     try {
-      const waitMsg = LANG === "ko"
-        ? "저장소 데이터를 받아오는 중입니다.\n처음 연결하는 저장소의 경우 수 분이 걸릴 수 있습니다.\n잠시만 기다려 주세요..."
-        : "Fetching repository data.\nThis may take a few minutes for new repositories.\nPlease wait...";
+      const waitMsg = getUIText("git_remote_fetching", "Fetching repository data.\nThis may take a few minutes for new repositories.\nPlease wait...");
       toolsLogNotice(waitMsg, { label: "change repository" });
       await runTool("git_remote_set", { url: newUrl.trim() });
       await refreshToolsMetaInfo();
-      const successMsg = LANG === "ko" 
-        ? "저장소가 성공적으로 변경되었습니다.\n[change branch] 버튼을 눌러 새 저장소의 브랜치를 선택해 주세요." 
-        : "Repository changed successfully.\nClick [change branch] to select a branch.";
+      const successMsg = getUIText("git_remote_success", "Repository changed successfully.\nClick [change branch] to select a branch.");
       toolsLogNotice(successMsg, { label: "change repository" });
     } catch (e) {
       showError("change repository", e);
@@ -3160,23 +3173,23 @@ function initToolsPage() {
   });
 
   bindOnce("btnGitAddRemote", async () => {
-    const title = LANG === "ko" ? "리모트 추가/갱신" : "Add/Update Remote";
+    const title = getUIText("git_add_remote_title", "Add/Update Remote");
     const nameInput = await appPrompt(
-      LANG === "ko" ? "리모트 이름을 입력하세요 (예: remote)" : "Enter remote name (e.g. remote)",
+      getUIText("git_add_remote_name_prompt", "Enter remote name (e.g. remote)"),
       { title, placeholder: "remote" }
     );
     if (!nameInput || !nameInput.trim()) return;
     const remoteName = nameInput.trim();
 
     const urlInput = await appPrompt(
-      LANG === "ko" ? `'${remoteName}' 리모트의 URL을 입력하세요` : `Enter URL for '${remoteName}'`,
+      getUIText("git_add_remote_url_prompt", "Enter URL for '{name}'", { name: remoteName }),
       { title, placeholder: "https://github.com/user/repo" }
     );
     if (!urlInput || !urlInput.trim()) return;
 
     try {
       await runTool("git_remote_add", { name: remoteName, url: urlInput.trim() });
-      toolsLogNotice(LANG === "ko" ? `리모트 '${remoteName}' 추가/갱신 완료` : `Remote '${remoteName}' added/updated`, { label: "git_remote_add" });
+      toolsLogNotice(getUIText("git_add_remote_done", "Remote '{name}' added/updated", { name: remoteName }), { label: "git_remote_add" });
     } catch (e) {
       showError("git_remote_add", e);
     }
@@ -3200,7 +3213,7 @@ function initToolsPage() {
       const selected = await openAppDialog({
         mode: "choice",
         title: "git log",
-        message: LANG === "ko" ? "이동할 커밋을 선택하세요" : "Select commit to checkout",
+        message: getUIText("git_log_checkout_prompt", "Select commit to checkout"),
         cancelLabel: UI_STRINGS[LANG].cancel || "Cancel",
         choices: commits.map(c => {
           const isCurrent = currentCommit && c.hash.startsWith(currentCommit);
@@ -3216,15 +3229,13 @@ function initToolsPage() {
       });
       if (!selected) return;
 
-      const confirmMsg = LANG === "ko"
-        ? `이 커밋으로 이동하시겠습니까?\n\n${selected}`
-        : `Checkout this commit?\n\n${selected}`;
+      const confirmMsg = `${getUIText("git_log_checkout_confirm", "Checkout this commit?")}\n\n${selected}`;
       if (!await appConfirm(confirmMsg, { title: "git checkout" })) return;
 
       const resetRes = await postJson("/api/tools", { action: "git_reset", mode: "hard", target: selected });
       if (!resetRes.ok) throw new Error(resetRes.error || "Reset failed");
       
-      toolsLogNotice(LANG === "ko" ? "이동 완료" : "Checkout complete", { label: "git_log" });
+      toolsLogNotice(getUIText("git_log_checkout_done", "Checkout complete"), { label: "git_log" });
       await refreshToolsMetaInfo();
     } catch (e) {
       showError("git_log", e);
@@ -3232,10 +3243,11 @@ function initToolsPage() {
   });
 
   bindOnce("btnGitResetRepo", async () => {
-    const title = LANG === "ko" ? "저장소 초기화" : "Reset Repository";
-    const msg = LANG === "ko"
-      ? "주의: 기존 origin을 삭제하고 'ajouatom/openpilot'으로 재설정합니다.\n모든 로컬 변경사항이 삭제됩니다. 진행하시겠습니까?"
-      : "Warning: This will remove origin and re-add 'ajouatom/openpilot'.\nAll local changes will be lost. Proceed?";
+    const title = getUIText("git_reset_repo_title", "Reset Repository");
+    const msg = getUIText(
+      "git_reset_repo_confirm",
+      "Warning: This will remove origin and re-add 'ajouatom/openpilot'.\nAll local changes will be lost. Proceed?"
+    );
     
     if (!await appConfirm(msg, { title, danger: true })) return;
 
@@ -3244,15 +3256,15 @@ function initToolsPage() {
       const fetchResult = await runTool("git_reset_repo_fetch");
       const branches = fetchResult.branches || [];
       if (!branches.length) {
-        toolsLogNotice(LANG === "ko" ? "브랜치를 찾을 수 없습니다" : "No branches found", { label: "git_reset_repo" });
+        toolsLogNotice(getUIText("git_reset_repo_no_branches", "No branches found"), { label: "git_reset_repo" });
         return;
       }
 
       // Phase 2: let user pick a branch
       const selected = await openAppDialog({
         mode: "choice",
-        title: LANG === "ko" ? "브랜치 선택" : "Select Branch",
-        message: LANG === "ko" ? "초기화할 브랜치를 선택하세요" : "Select branch to reset to",
+        title: getUIText("branch_select", "Select Branch"),
+        message: getUIText("git_reset_repo_branch_message", "Select branch to reset to"),
         cancelLabel: UI_STRINGS[LANG].cancel || "Cancel",
         choices: branches.map(b => ({ label: b, value: b })),
       });
@@ -3260,7 +3272,7 @@ function initToolsPage() {
 
       // Phase 3: checkout selected branch
       await runTool("git_reset_repo_checkout", { branch: selected });
-      toolsLogNotice(LANG === "ko" ? `'${selected}' 브랜치로 초기화 완료` : `Reset to '${selected}' complete`, { label: "git_reset_repo" });
+      toolsLogNotice(getUIText("git_reset_repo_done", "Reset to '{branch}' complete", { branch: selected }), { label: "git_reset_repo" });
       await refreshToolsMetaInfo();
 
       if (await appConfirm(UI_STRINGS[LANG].confirm_reboot || "Reboot now?", {
@@ -3274,10 +3286,8 @@ function initToolsPage() {
   });
 
   bindOnce("btnResetCalib", async () => {
-    const title = LANG === "ko" ? "캘리브레이션 초기화" : "ReCalibration";
-    const msg = LANG === "ko" 
-      ? "캘리브레이션을 초기화하시겠습니까?\n초기화 후 자동으로 재부팅됩니다."
-      : "Are you sure you want to reset calibration?\nDevice will reboot automatically.";
+    const title = getUIText("reset_calib_title", "ReCalibration");
+    const msg = getUIText("reset_calib_confirm", "Are you sure you want to reset calibration?\nDevice will reboot automatically.");
     if (!await appConfirm(msg, { title })) return;
     try {
       await runTool("reset_calib");
@@ -3303,16 +3313,16 @@ function initToolsPage() {
     ];
     const val = await openAppDialog({
       mode: "choice",
-      title: "Device Language",
-      message: LANG === "ko" ? "기기 언어를 선택하세요." : "Select language for the device UI",
+      title: getUIText("device_lang", "Device Language"),
+      message: getUIText("device_lang_select_prompt", "Select language for the device UI"),
       cancelLabel: UI_STRINGS[LANG]?.cancel || "Cancel",
       choices
     });
     if (!val) return;
     try {
       await setParam("LanguageSetting", val);
-      const rebootMsg = LANG === "ko" ? "설정이 변경되었습니다. 지금 재부팅하시겠습니까?" : "Setting changed. Reboot now?";
-      if (await appConfirm(rebootMsg, { title: "Reboot" })) {
+      const rebootMsg = getUIText("setting_changed_reboot", "Setting changed. Reboot now?");
+      if (await appConfirm(rebootMsg, { title: getUIText("reboot", "Reboot") })) {
         await runTool("reboot");
       }
     } catch (e) {
@@ -3471,7 +3481,7 @@ function initToolsPage() {
         if (j.ok) SETTINGS = j;
       }
       if (!SETTINGS || !SETTINGS.items_by_group) {
-        toolsLogNotice("Settings not loaded", { label: "copy settings" });
+        toolsLogNotice(getUIText("settings_not_loaded", "Settings not loaded"), { label: "copy settings" });
         return;
       }
       const allNames = getAllSettingNames(SETTINGS);
@@ -3479,7 +3489,7 @@ function initToolsPage() {
       const lines = allNames.map(n => `${n}=${values[n] ?? ""}`);
       const text = lines.join("\n");
       copyToClipboard(text);
-      toolsLogNotice(LANG === "ko" ? `${allNames.length}개 파라미터 복사됨` : `${allNames.length} params copied`, { label: "copy settings" });
+      toolsLogNotice(getUIText("copy_settings_done", "{count} params copied", { count: allNames.length }), { label: "copy settings" });
     } catch (e) {
       showError("copy settings", e);
     }
@@ -3493,15 +3503,15 @@ function initToolsPage() {
         if (j.ok) SETTINGS = j;
       }
       if (!SETTINGS || !SETTINGS.items_by_group) {
-        toolsLogNotice("Settings not loaded", { label: "view settings" });
+        toolsLogNotice(getUIText("settings_not_loaded", "Settings not loaded"), { label: "view settings" });
         return;
       }
       const allNames = getAllSettingNames(SETTINGS);
       const values = await bulkGet(allNames);
-      const lines = allNames.map(n => `${n} = ${values[n] ?? "(empty)"}`);
+      const lines = allNames.map(n => `${n} = ${values[n] ?? getUIText("empty_value", "(empty)")}`);
       const text = lines.join("\n");
       appAlert(text, {
-        title: `Settings (${allNames.length} params)`,
+        title: getUIText("settings_title", "Settings ({count} params)", { count: allNames.length }),
         copyText: text,
       });
     } catch (e) {
@@ -3562,7 +3572,7 @@ async function loadBranchesAndShow() {
     toolsLogNotice(UI_STRINGS[LANG].branch_dom_missing || "Branch DOM missing", { label: "git_branch_list" });
     return;
   }
-  appBranchPickerMeta.textContent = "loading...";
+  appBranchPickerMeta.textContent = getUIText("loading", "Loading...");
   appBranchPickerList.innerHTML = "";
   BRANCHES = [];
   CURRENT_BRANCH_NAME = "";
@@ -3767,6 +3777,29 @@ function dashcamApiPath(kind, segment) {
   return `/api/dashcam/${kind}/${encodeURIComponent(segment)}`;
 }
 
+function formatRelativeEpoch(epochSeconds) {
+  const epoch = Number(epochSeconds || 0);
+  if (!Number.isFinite(epoch) || epoch <= 0) return "";
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(epoch));
+  if (delta < 60) return getUIText("just_now", "just now");
+  if (delta < 3600) return getUIText("minutes_ago", "{count} min ago", { count: Math.floor(delta / 60) });
+  if (delta < 86400) return getUIText("hours_ago", "{count} hr ago", { count: Math.floor(delta / 3600) });
+  return getUIText("days_ago", "{count} days ago", { count: Math.floor(delta / 86400) });
+}
+
+function localizeRelativeLabel(label) {
+  const text = String(label || "").trim();
+  if (!text) return "";
+  if (/^(방금\s*전|just\s*now)$/i.test(text)) return getUIText("just_now", "just now");
+  const minuteMatch = text.match(/^(\d+)\s*(?:분\s*전|min(?:ute)?s?\s*ago)$/i);
+  if (minuteMatch) return getUIText("minutes_ago", "{count} min ago", { count: minuteMatch[1] });
+  const hourMatch = text.match(/^(\d+)\s*(?:시간\s*전|hr?s?\s*ago|hour?s?\s*ago)$/i);
+  if (hourMatch) return getUIText("hours_ago", "{count} hr ago", { count: hourMatch[1] });
+  const dayMatch = text.match(/^(\d+)\s*(?:일\s*전|day?s?\s*ago)$/i);
+  if (dayMatch) return getUIText("days_ago", "{count} days ago", { count: dayMatch[1] });
+  return text;
+}
+
 function setDashcamStatus(message, tone = "") {
   const status = document.getElementById("dashcamStatus");
   if (!status) return;
@@ -3873,7 +3906,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
   const routeAttr = escapeHtml(route);
   const title = escapeHtml(entry.title || dashcamRouteTitle(route));
   const dateLabel = escapeHtml(entry.dateLabel || route);
-  const latest = escapeHtml(entry.latestModifiedLabel || "-");
+  const latest = escapeHtml(formatRelativeEpoch(entry.latestModifiedEpoch) || localizeRelativeLabel(entry.latestModifiedLabel) || "-");
   const preview = representative
     ? `<div class="dashcam-route-media">
         <div class="dashcam-route-preview" data-action="play" data-route="${routeAttr}" data-segment="${escapeHtml(representative)}">
@@ -4058,8 +4091,8 @@ async function loadDashcamRoutes({ silent = false } = {}) {
     if (seq !== dashcamState.loadSeq) return;
     dashcamState.loading = false;
     if (!silent) {
-      setDashcamStatus(`대시캠 목록 로드 실패: ${e.message || e}`, "error");
-      showAppToast(e.message || "대시캠 목록 로드 실패", { tone: "error" });
+      setDashcamStatus(`${getUIText("dashcam_load_failed", "Failed to load dashcam list")}: ${e.message || e}`, "error");
+      showAppToast(e.message || getUIText("dashcam_load_failed", "Failed to load dashcam list"), { tone: "error" });
     }
   }
 }
@@ -4222,18 +4255,18 @@ function openScreenrecordPlayer(id, name) {
 function dashcamUploadResultHtml(result) {
   const text = String(result?.shareText || result?.message || "");
   const discord = result?.discord || {};
-  let discordLabel = "Discord: 설정 없음";
+  let discordLabel = `Discord: ${getUIText("not_set", "Not set")}`;
   let discordClass = "is-muted";
   if (discord.configured && discord.ok) {
-    discordLabel = "Discord: 전송 완료";
+    discordLabel = `Discord: ${getUIText("sent", "Sent")}`;
     discordClass = "is-ok";
   } else if (discord.configured) {
-    discordLabel = `Discord: 실패${discord.status ? ` (${discord.status})` : ""}`;
+    discordLabel = `Discord: ${getUIText("failed", "Failed")}${discord.status ? ` (${discord.status})` : ""}`;
     discordClass = "is-error";
   }
   return `<div class="dashcam-share-card">
     <div class="dashcam-share-card__summary">
-      <span>업로드 ${Number(result?.uploaded || 0)}/${Number(result?.total || 0)}</span>
+      <span>${escapeHtml(getUIText("upload_count", "Upload {uploaded}/{total}", { uploaded: Number(result?.uploaded || 0), total: Number(result?.total || 0) }))}</span>
       <span class="${discordClass}">${escapeHtml(discordLabel)}</span>
     </div>
     <pre>${escapeHtml(text)}</pre>
@@ -4291,7 +4324,10 @@ async function uploadDashcamSegments(segments) {
   const progress = openDashcamUploadProgress(targets.length);
   try {
     const result = await postJson("/api/dashcam/upload", { segments: targets });
-    const message = result.message || `전송 완료 ${result.uploaded || 0}/${result.total || targets.length}`;
+    const message = result.message || getUIText("upload_complete_count", "Upload complete {uploaded}/{total}", {
+      uploaded: result.uploaded || 0,
+      total: result.total || targets.length,
+    });
     showAppToast(message, { tone: result.ok ? "default" : "error", duration: 3600 });
     progress.close();
     await showDashcamUploadResult(result);
@@ -4325,7 +4361,7 @@ async function showDashcamSegmentMenu(route, segment) {
 function screenrecordVideoRowHtml(video, index = 0) {
   const id = escapeHtml(video.id || "");
   const name = escapeHtml(video.name || "-");
-  const date = escapeHtml(video.modifiedLabel || video.relativeModifiedLabel || "-");
+  const date = escapeHtml(formatRelativeEpoch(video.modifiedEpoch) || localizeRelativeLabel(video.modifiedLabel || video.relativeModifiedLabel) || "-");
   const size = escapeHtml(formatLogBytes(video.size));
   const ext = escapeHtml((video.ext || "video").toUpperCase());
   return `<article class="screenrecord-row ui-stagger-item" style="--i:${index}" data-action="play-screenrecord" data-id="${id}" data-name="${name}">
@@ -4340,7 +4376,7 @@ function screenrecordVideoRowHtml(video, index = 0) {
         <span>${ext}</span>
       </div>
     </div>
-    <button class="screenrecord-download" type="button" data-action="download-screenrecord" data-id="${id}" aria-label="다운로드" title="다운로드">
+    <button class="screenrecord-download" type="button" data-action="download-screenrecord" data-id="${id}" aria-label="${escapeHtml(getUIText("download", "Download"))}" title="${escapeHtml(getUIText("download", "Download"))}">
       <svg viewBox="0 0 24 24"><path fill="currentColor" d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg>
     </button>
   </article>`;
@@ -4357,7 +4393,7 @@ function renderScreenrecordVideos() {
   }
   if (!videos.length) {
     host.innerHTML = "";
-    setScreenrecordStatus("화면녹화 폴더/영상이 없습니다.");
+    setScreenrecordStatus(getUIText("screenrecord_empty", "No screen recordings found."));
     return;
   }
   setScreenrecordStatus("");
@@ -4389,8 +4425,8 @@ async function loadScreenrecordVideos({ silent = false } = {}) {
     if (seq !== screenrecordState.loadSeq) return;
     screenrecordState.loading = false;
     if (!silent) {
-      setScreenrecordStatus(`화면녹화 목록 로드 실패: ${e.message || e}`, "error");
-      showAppToast(e.message || "화면녹화 목록 로드 실패", { tone: "error" });
+      setScreenrecordStatus(`${getUIText("screenrecord_load_failed", "Failed to load screen recordings")}: ${e.message || e}`, "error");
+      showAppToast(e.message || getUIText("screenrecord_load_failed", "Failed to load screen recordings"), { tone: "error" });
     }
   }
 }
