@@ -51,6 +51,10 @@ def launcher(proc: str, name: str) -> None:
 def nativelauncher(pargs: list[str], cwd: str, name: str) -> None:
   os.environ['MANAGER_DAEMON'] = name
 
+  # .so 로딩을 위해 cwd를 LD_LIBRARY_PATH에 추가
+  ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+  os.environ['LD_LIBRARY_PATH'] = cwd + (':' + ld_path if ld_path else '')
+
   # exec the process
   os.chdir(cwd)
   os.execvp(pargs[0], pargs)
