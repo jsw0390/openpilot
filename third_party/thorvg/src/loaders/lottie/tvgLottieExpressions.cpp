@@ -61,6 +61,42 @@ static const char* EXP_VALUE = "value";
 static const char* EXP_INDEX = "index";
 static const char* EXP_EFFECT= "effect";
 
+/**
+ * external magic strings for the per-frame hot path (buildProperty, buildLayer, buildTransform, bm_rt).
+ * magic pool: sorted by length, then lexicographically. packed in a single static blob,
+ *             because 'jerry_register_magic_strings' does not copy the string data.
+ * lengths/count are generated from a single list at compile time; pointers are built once at init.
+ */
+#define TVG_LOTTIE_MAGIC_STRING_LIST(X) \
+    X("key") \
+    X("comp") X("name") X("time") \
+    X("index") X("layer") X("scale") X("speed") X("value") X("width") \
+    X("$bm_rt") X("effect") X("height") X("parent") X("toComp") X("wiggle") \
+    X("content") X("enabled") X("inPoint") X("numKeys") X("opacity") \
+    X("duration") X("hasAudio") X("hasVideo") X("outPoint") X("position") X("rotation") X("thisComp") X("velocity") \
+    X("hasParent") X("numLayers") X("startTime") X("thisLayer") X("timeRemap") X("transform") \
+    X("nearestKey") \
+    X("anchorPoint") X("audioActive") X("speedAtTime") X("valueAtTime") \
+    X("thisProperty") \
+    X("frameDuration") X("propertyIndex") \
+    X("velocityAtTime")
+
+#define TVG_LOTTIE_MAGIC_POOL_ENTRY(str) str
+static constexpr const char _magicPool[] =
+    TVG_LOTTIE_MAGIC_STRING_LIST(TVG_LOTTIE_MAGIC_POOL_ENTRY);
+#undef TVG_LOTTIE_MAGIC_POOL_ENTRY
+
+#define TVG_LOTTIE_MAGIC_LENGTH_ENTRY(str) (jerry_length_t)(sizeof(str) - 1),
+static constexpr jerry_length_t _magicLengths[] = {
+    TVG_LOTTIE_MAGIC_STRING_LIST(TVG_LOTTIE_MAGIC_LENGTH_ENTRY)
+};
+#undef TVG_LOTTIE_MAGIC_LENGTH_ENTRY
+
+#define MAGIC_STRING_COUNT (sizeof(_magicLengths) / sizeof(_magicLengths[0]))
+static const jerry_char_t* _magicStrings[MAGIC_STRING_COUNT];
+
+#undef TVG_LOTTIE_MAGIC_STRING_LIST
+
 static LottieExpressions* exps = nullptr;   //singleton instance engine
 
 
@@ -88,8 +124,22 @@ static float _rand()
 }
 
 
+static jerry_value_t _number(float value)
+{
+    //OPTIMIZE: used a typed buffer instead of a object hash
+    auto obj = jerry_object();
+    auto val = jerry_number(value);
+    jerry_object_set_index(obj, 0, val);
+    jerry_object_set_sz(obj, EXP_VALUE, val);
+    jerry_value_free(val);
+
+    return obj;
+}
+
+
 static jerry_value_t _point2d(const Point& pt)
 {
+    //OPTIMIZE: used a typed buffer instead of a object hash
     auto obj = jerry_object();
     auto v1 = jerry_number(pt.x);
     auto v2 = jerry_number(pt.y);
@@ -103,6 +153,7 @@ static jerry_value_t _point2d(const Point& pt)
 
 static jerry_value_t _color(RGB32 rgb)
 {
+    //OPTIMIZE: used a typed buffer instead of a object hash
     auto value = jerry_object();
     auto r = jerry_number((float)rgb.r);
     auto g = jerry_number((float)rgb.g);
@@ -117,6 +168,17 @@ static jerry_value_t _color(RGB32 rgb)
 }
 
 
+static float _number(jerry_value_t obj)
+{
+    if (jerry_value_is_number(obj)) return jerry_value_as_number(obj);
+
+    auto val = jerry_object_get_index(obj, 0);
+    auto ret = jerry_value_as_number(val);
+    jerry_value_free(val);
+    return ret;
+}
+
+
 static Point _point2d(jerry_value_t obj)
 {
     auto v1 = jerry_object_get_index(obj, 0);
@@ -126,6 +188,7 @@ static Point _point2d(jerry_value_t obj)
     jerry_value_free(v2);
     return pt;
 }
+
 
 static RGB32 _color(jerry_value_t obj)
 {
@@ -147,6 +210,7 @@ static void contentFree(void *native_p, struct jerry_object_native_info_t *info_
         tvg::free(native_p);
     }
 }
+
 
 static jerry_object_native_info_t freeCb {contentFree, 0, 0};
 static uint32_t engineRefCnt = 0;  //Expressions Engine reference count
@@ -183,9 +247,7 @@ static jerry_value_t _toComp(const jerry_call_info_t* info, const jerry_value_t 
 static jerry_value_t _point(const Point& v)
 {
     auto obj = _point2d(v);
-    auto value = _point2d(v);
-    jerry_object_set_sz(obj, EXP_VALUE, value);
-    jerry_value_free(value);
+    jerry_object_set_sz(obj, EXP_VALUE, obj);
     return obj;
 }
 
@@ -193,8 +255,8 @@ static jerry_value_t _point(const Point& v)
 static jerry_value_t _buildValue(float frameNo, LottieProperty* property)
 {
     switch (property->type) {
-        case LottieProperty::Type::Integer: return jerry_number((*static_cast<LottieInteger*>(property))(frameNo));
-        case LottieProperty::Type::Float: return jerry_number((*static_cast<LottieFloat*>(property))(frameNo));
+        case LottieProperty::Type::Integer: return _number((float)(*static_cast<LottieInteger*>(property))(frameNo));
+        case LottieProperty::Type::Float: return _number((*static_cast<LottieFloat*>(property))(frameNo));
         case LottieProperty::Type::Scalar: return _point((*static_cast<LottieScalar*>(property))(frameNo));
         case LottieProperty::Type::Vector: return _point((*static_cast<LottieVector*>(property))(frameNo));
         case LottieProperty::Type::PathSet:
@@ -205,6 +267,10 @@ static jerry_value_t _buildValue(float frameNo, LottieProperty* property)
         }
         case LottieProperty::Type::Color: return _color((*static_cast<LottieColor*>(property))(frameNo));
         case LottieProperty::Type::Opacity: return jerry_number((*static_cast<LottieOpacity*>(property))(frameNo));
+        case LottieProperty::Type::TextDoc: {
+            const auto& doc = (*static_cast<LottieTextDoc*>(property))(frameNo);
+            return doc.text ? jerry_string_sz(doc.text) : jerry_string_sz("");
+        }
         default: TVGERR("LOTTIE", "Non supported type for value? = %d", (int) property->type);
     }
     return jerry_undefined();
@@ -218,23 +284,23 @@ static void _buildTransform(jerry_value_t context, float frameNo, LottieTransfor
     auto obj = jerry_object();
     jerry_object_set_sz(context, "transform", obj);
 
-    auto anchorPoint = _buildValue(frameNo, &transform->anchor);
+    auto anchorPoint = _point(transform->anchor(frameNo));
     jerry_object_set_sz(obj, "anchorPoint", anchorPoint);
     jerry_value_free(anchorPoint);
 
-    auto position = _buildValue(frameNo, &transform->position);
+    auto position = _point(transform->position(frameNo));
     jerry_object_set_sz(obj, "position", position);
     jerry_value_free(position);
 
-    auto scale = _buildValue(frameNo, &transform->scale);
+    auto scale = _point(transform->scale(frameNo));
     jerry_object_set_sz(obj, "scale", scale);
     jerry_value_free(scale);
 
-    auto rotation = _buildValue(frameNo, &transform->rotation);
+    auto rotation = jerry_number(transform->rotation(frameNo));
     jerry_object_set_sz(obj, "rotation", rotation);
     jerry_value_free(rotation);
 
-    auto opacity = _buildValue(frameNo, &transform->opacity);
+    auto opacity = jerry_number(transform->opacity(frameNo));
     jerry_object_set_sz(obj, "opacity", opacity);
     jerry_value_free(opacity);
 
@@ -314,7 +380,6 @@ static jerry_value_t _effectProperty(const jerry_call_info_t* info, const jerry_
     tvg::free(name);
 
     if (!property) return jerry_undefined();
-
     return _buildValue(data->frameNo, property);
 }
 
@@ -461,14 +526,14 @@ static jerry_value_t _addsub(const jerry_value_t args[], float addsub)
     auto n2 = jerry_value_is_number(args[1]);
 
     //1d + 1d
-    if (n1 && n2) return jerry_number(jerry_value_as_number(args[0]) + addsub * jerry_value_as_number(args[1]));
+    if (n1 && n2) return jerry_number(_number(args[0]) + addsub * _number(args[1]));
 
     auto pt = _point2d(args[n1 ? 1 : 0]);
 
     //2d + 1d
     if (n1 || n2) {
         auto secondary = n1 ? 0 : 1;
-        auto val3 = jerry_value_as_number(args[secondary]);
+        auto val3 = _number(args[secondary]);
         if (secondary == 0) pt.x = (pt.x * addsub) + val3;
         else pt.x += (addsub * val3);
     //2d + 2d
@@ -483,7 +548,7 @@ static jerry_value_t _addsub(const jerry_value_t args[], float addsub)
 static jerry_value_t _muldiv(const jerry_value_t arg1, float arg2)
 {
     //1d
-    if (jerry_value_is_number(arg1)) return jerry_number(jerry_value_as_number(arg1) * arg2);
+    if (jerry_value_is_number(arg1)) return jerry_number(_number(arg1) * arg2);
 
     //2d
     return _point2d(_point2d(arg1) * arg2);
@@ -504,13 +569,19 @@ static jerry_value_t _sub(const jerry_call_info_t* info, const jerry_value_t arg
 
 static jerry_value_t _mul(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    return _muldiv(args[0], jerry_value_as_number(args[1]));
+    return _muldiv(args[0], _number(args[1]));
 }
 
 
 static jerry_value_t _div(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    return _muldiv(args[0], 1.0f / jerry_value_as_number(args[1]));
+    return _muldiv(args[0], 1.0f / _number(args[1]));
+}
+
+
+static jerry_value_t _mod(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
+{
+    return jerry_number(fmod(_number(args[0]), _number(args[1])));
 }
 
 
@@ -520,8 +591,8 @@ static jerry_value_t _interp(float t, const jerry_value_t args[], int argsCnt)
     auto tMax = 1.0f;
     int idx = 0;
 
-    tMin = jerry_value_as_number(args[1]);
-    tMax = jerry_value_as_number(args[2]);
+    tMin = _number(args[1]);
+    tMax = _number(args[2]);
     idx += 2;
 
     t = (t - tMin) / (tMax - tMin);
@@ -534,20 +605,20 @@ static jerry_value_t _interp(float t, const jerry_value_t args[], int argsCnt)
     }
 
     //1d
-    return jerry_number(tvg::lerp(jerry_value_as_number(args[idx + 1]), jerry_value_as_number(args[idx + 2]), t));
+    return jerry_number(tvg::lerp(_number(args[idx + 1]), _number(args[idx + 2]), t));
 }
 
 
 static jerry_value_t _linear(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    auto t = jerry_value_as_number(args[0]);
+    auto t = _number(args[0]);
     return _interp(t, args, jerry_value_as_uint32(argsCnt));
 }
 
 
 static jerry_value_t _ease(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    auto t = jerry_value_as_number(args[0]);
+    auto t = _number(args[0]);
     t = (t < 0.5f) ? (4 * t * t * t) : (1.0f - powf(-2.0f * t + 2.0f, 3) * 0.5f);
     return _interp(t, args, jerry_value_as_uint32(argsCnt));
 }
@@ -556,7 +627,7 @@ static jerry_value_t _ease(const jerry_call_info_t* info, const jerry_value_t ar
 
 static jerry_value_t _easeIn(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    auto t = jerry_value_as_number(args[0]);
+    auto t = _number(args[0]);
     t = t * t * t;
     return _interp(t, args, jerry_value_as_uint32(argsCnt));
 }
@@ -564,7 +635,7 @@ static jerry_value_t _easeIn(const jerry_call_info_t* info, const jerry_value_t 
 
 static jerry_value_t _easeOut(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    auto t = jerry_value_as_number(args[0]);
+    auto t = _number(args[0]);
     t = 1.0f - powf(1.0f - t, 3);
     return _interp(t, args, jerry_value_as_uint32(argsCnt));
 }
@@ -572,9 +643,9 @@ static jerry_value_t _easeOut(const jerry_call_info_t* info, const jerry_value_t
 
 static jerry_value_t _clamp(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    auto num = jerry_value_as_number(args[0]);
-    auto limit1 = jerry_value_as_number(args[1]);
-    auto limit2 = jerry_value_as_number(args[2]);
+    auto num = _number(args[0]);
+    auto limit1 = _number(args[1]);
+    auto limit2 = _number(args[2]);
 
     //clamping
     if (num < limit1) num = limit1;
@@ -617,13 +688,13 @@ static jerry_value_t _random(const jerry_call_info_t* info, const jerry_value_t 
 
 static jerry_value_t _deg2rad(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    return jerry_number(deg2rad(jerry_value_as_number(args[0])));
+    return jerry_number(deg2rad(_number(args[0])));
 }
 
 
 static jerry_value_t _rad2deg(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
-    return jerry_number(rad2deg(jerry_value_as_number(args[0])));
+    return jerry_number(rad2deg(_number(args[0])));
 }
 
 
@@ -667,16 +738,34 @@ static jerry_value_t _pointOnPath(const jerry_call_info_t* info, const jerry_val
 {
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
     auto pathset = static_cast<LottiePathSet*>(data->property);
-    auto progress = jerry_value_as_number(args[0]);
-    RenderPath out;
+    auto progress = _number(args[0]);
+    auto& out = RenderPath::scratch();
     (*pathset)(data->frameNo, out, nullptr, nullptr);
     return _point2d(out.point(progress));
 }
 
+static jerry_value_t _tangentOnPath(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
+{
+    auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
+    auto pathset = static_cast<LottiePathSet*>(data->property);
+    auto progress = _number(args[0]);
+    auto& out = RenderPath::scratch();
+    (*pathset)(data->frameNo, out, nullptr, nullptr);
+
+    auto a = out.point(std::max(0.0f, progress - 0.001f));
+    auto b = out.point(std::min(1.0f, progress + 0.001f));
+    Point t = {b.x - a.x, b.y - a.y};
+    auto len = tvg::length(t);
+    if (len > 0.0f) {
+        t.x /= len;
+        t.y /= len;
+    }
+    return _point2d(t);
+}
 
 static void _buildPath(jerry_value_t context, float frameNo, LottieProperty* pathset)
 {
-    auto data = _expcontent(nullptr, frameNo, pathset, 2);
+    auto data = _expcontent(nullptr, frameNo, pathset, 3);
 
     //Trick for fast building path.
     auto points = jerry_function_external(_points);
@@ -688,6 +777,11 @@ static void _buildPath(jerry_value_t context, float frameNo, LottieProperty* pat
     jerry_object_set_native_ptr(pointOnPath, &freeCb, data);
     jerry_object_set_sz(context, "pointOnPath", pointOnPath);
     jerry_value_free(pointOnPath);
+
+    auto tangentOnPath = jerry_function_external(_tangentOnPath);
+    jerry_object_set_native_ptr(tangentOnPath, &freeCb, data);
+    jerry_object_set_sz(context, "tangentOnPath", tangentOnPath);
+    jerry_value_free(tangentOnPath);
 
     //inTangents
     //outTangents
@@ -750,7 +844,7 @@ static jerry_value_t _layer(const jerry_call_info_t* info, const jerry_value_t a
 static jerry_value_t _nearestKey(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto exp = static_cast<LottieExpression*>(jerry_object_get_native_ptr(info->function, nullptr));
-    auto time = jerry_value_as_number(args[0]);
+    auto time = _number(args[0]);
     auto frameNo = exp->comp->frameAtTime(time);
     auto index = jerry_number((float)exp->property->nearest(frameNo));
 
@@ -792,7 +886,7 @@ static jerry_value_t _propertyGroup(const jerry_call_info_t* info, const jerry_v
 static jerry_value_t _valueAtTime(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto exp = static_cast<LottieExpression*>(jerry_object_get_native_ptr(info->function, nullptr));
-    auto time = jerry_value_as_number(args[0]);
+    auto time = _number(args[0]);
     auto frameNo = exp->comp->frameAtTime(time);
     return _buildValue(frameNo, exp->property);
 }
@@ -807,7 +901,7 @@ static jerry_value_t _velocity(Point& prv, Point& cur, float elapsed)
 static jerry_value_t _velocityAtTime(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto exp = static_cast<LottieExpression*>(jerry_object_get_native_ptr(info->function, nullptr));
-    auto key = exp->property->nearest(exp->comp->frameAtTime(jerry_value_as_number(args[0])));
+    auto key = exp->property->nearest(exp->comp->frameAtTime(_number(args[0])));
     auto pframe = exp->property->frameNo(key - 1);
     auto cframe = exp->property->frameNo(key);
     auto elapsed = (cframe - pframe) / (exp->comp->frameRate);
@@ -838,7 +932,7 @@ static jerry_value_t _velocityAtTime(const jerry_call_info_t* info, const jerry_
 static jerry_value_t _speedAtTime(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto exp = static_cast<LottieExpression*>(jerry_object_get_native_ptr(info->function, nullptr));
-    auto key = exp->property->nearest(exp->comp->frameAtTime(jerry_value_as_number(args[0])));
+    auto key = exp->property->nearest(exp->comp->frameAtTime(_number(args[0])));
     auto pframe = exp->property->frameNo(key - 1);
     auto cframe = exp->property->frameNo(key);
 
@@ -868,15 +962,14 @@ static jerry_value_t _speedAtTime(const jerry_call_info_t* info, const jerry_val
 }
 
 
-
 static jerry_value_t _wiggle(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
-    auto freq = jerry_value_as_number(args[0]);
-    auto amp = jerry_value_as_number(args[1]);
+    auto freq = _number(args[0]);
+    auto amp = _number(args[1]);
     auto octaves = (argsCnt > 2) ? jerry_value_as_int32(args[2]) : 1;
-    auto ampm = (argsCnt > 3) ? jerry_value_as_number(args[3]) : 0.5f;
-    auto time = (argsCnt > 4) ? jerry_value_as_number(args[4]) : data->exp->comp->timeAtFrame(data->frameNo);
+    auto ampm = (argsCnt > 3) ? _number(args[3]) : 0.5f;
+    auto time = (argsCnt > 4) ? _number(args[4]) : data->exp->comp->timeAtFrame(data->frameNo);
 
     Point result = {0.0f, 0.0f};
     auto property = data->exp->property;
@@ -887,15 +980,40 @@ static jerry_value_t _wiggle(const jerry_call_info_t* info, const jerry_value_t 
         result = (*static_cast<LottieScalar*>(property))(data->frameNo);
     }
 
+    auto perlin1D = [](float x, int seed) {
+        auto x0 = (int)floorf(x);
+        auto x1 = x0 + 1;
+        auto fx = x - (float)x0;
+
+        // Apply quintic fade curve for smooth interpolation
+        // Quintic fade curve for smooth interpolation (6t^5 - 15t^4 + 10t^3)
+        // Used in Perlin noise for smoother transitions than linear interpolation
+        auto u = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+
+        // Simplified gradient function for 1D Perlin noise
+        // Deterministic random generator using glibc's LCG algorithm
+        auto gradient1D = [](int64_t seed) -> float {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            return float(static_cast<double>(seed) / 2147483647) < 0.5f ? -1.0f : 1.0f;
+        };
+
+        // Calculate dot products (in 1D, this is just multiplication with distance)
+        auto d0 = gradient1D(x0 * 100000 + seed) * fx;
+        auto d1 = gradient1D(x1 * 100000 + seed) * (fx - 1.0f);
+
+        // Interpolate between the two gradient influences and scale the result by 3.0
+        return tvg::lerp(d0, d1, u) * 3.0f;
+    };
+
     for (int o = 0; o < octaves; ++o) {
-        auto repeat = (int)ceil(time * freq);
-        for (int i = 0; i < repeat; ++i) {
-            result.x += (_rand() * 2.0f - 1.0f) * amp;
-            result.y += (_rand() * 2.0f - 1.0f) * amp;
-        }
+        auto repeat = time * freq;
+        // Factors (1000000, 2000000) to separate X/Y axes to prevent seed collisions across octaves.
+        result.x += perlin1D(repeat, (1000000 + o)) * amp;
+        result.y += perlin1D(repeat, (2000000 + o)) * amp;
         freq *= 2.0f;
         amp *= ampm;
     }
+
     return _point2d(result);
 }
 
@@ -903,11 +1021,11 @@ static jerry_value_t _wiggle(const jerry_call_info_t* info, const jerry_value_t 
 static jerry_value_t _temporalWiggle(const jerry_call_info_t* info, const jerry_value_t args[], const jerry_length_t argsCnt)
 {
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
-    auto freq = jerry_value_as_number(args[0]);
-    auto amp = jerry_value_as_number(args[1]);
+    auto freq = _number(args[0]);
+    auto amp = _number(args[1]);
     auto octaves = (argsCnt > 2) ? jerry_value_as_int32(args[2]) : 1;
-    auto ampm = (argsCnt > 3) ? jerry_value_as_number(args[3]) : 5.0f;
-    auto time = (argsCnt > 4) ? jerry_value_as_number(args[4]) : data->exp->comp->timeAtFrame(data->frameNo);
+    auto ampm = (argsCnt > 3) ? _number(args[3]) : 5.0f;
+    auto time = (argsCnt > 4) ? _number(args[4]) : data->exp->comp->timeAtFrame(data->frameNo);
     auto wiggleTime = time;
 
     for (int o = 0; o < octaves; ++o) {
@@ -959,7 +1077,7 @@ static jerry_value_t _loopOutDuration(const jerry_call_info_t* info, const jerry
 {
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
     auto mode = static_cast<LottieProperty::Loop>((int) _loopCommon(args, argsCnt) + LOOP_OUT_OFFSET);
-    auto out = (argsCnt > 1) ? data->exp->comp->frameAtTime(jerry_value_as_number(args[1])) : FLT_MAX;
+    auto out = (argsCnt > 1) ? data->exp->comp->frameAtTime(_number(args[1])) : FLT_MAX;
     return _buildValue(data->exp->property->loop(data->frameNo, 0, mode, out), data->exp->property);
 }
 
@@ -977,7 +1095,7 @@ static jerry_value_t _loopInDuration(const jerry_call_info_t* info, const jerry_
 {
     auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(info->function, &freeCb));
     auto mode = _loopCommon(args, argsCnt);
-    auto in = (argsCnt > 1) ? data->exp->comp->frameAtTime(jerry_value_as_number(args[1])) : FLT_MAX;
+    auto in = (argsCnt > 1) ? data->exp->comp->frameAtTime(_number(args[1])) : FLT_MAX;
     return _buildValue(data->exp->property->loop(data->frameNo, 0, mode, in), data->exp->property);
 }
 
@@ -998,8 +1116,12 @@ static jerry_value_t _key(const jerry_call_info_t* info, const jerry_value_t arg
     if (exp->property->type == LottieProperty::Type::Float) {
         jerry_object_set_index(obj, 0, value);
     } else if (exp->property->type == LottieProperty::Type::Scalar || exp->property->type == LottieProperty::Type::Vector) {
-        jerry_object_set_index(obj, 0, jerry_object_get_index(value, 0));
-        jerry_object_set_index(obj, 1, jerry_object_get_index(value, 1));
+        auto v0 = jerry_object_get_index(value, 0);
+        auto v1 = jerry_object_get_index(value, 1);
+        jerry_object_set_index(obj, 0, v0);
+        jerry_object_set_index(obj, 1, v1);
+        jerry_value_free(v0);
+        jerry_value_free(v1);
     }
 
     jerry_value_free(time);
@@ -1015,112 +1137,96 @@ static void _buildProperty(float frameNo, jerry_value_t context, LottieExpressio
     jerry_object_set_sz(context, EXP_VALUE, value);
     jerry_value_free(value);
 
-    auto valueAtTime = jerry_function_external(_valueAtTime);
-    jerry_object_set_sz(context, "valueAtTime", valueAtTime);
-    jerry_object_set_native_ptr(valueAtTime, nullptr, exp);
-    jerry_value_free(valueAtTime);
+    //check if functions are already registered. If not (first build), set all functions.
+    //otherwise, update native_ptr and update shared data in ExpContent
+    auto check = jerry_object_get_sz(context, "valueAtTime");
+    auto init = jerry_value_is_undefined(check);
+    jerry_value_free(check);
 
-    auto velocity = jerry_number(0.0f);
-    jerry_object_set_sz(context, "velocity", velocity);
-    jerry_value_free(velocity);
+    //set or update a native function bound to exp
+    auto setFunction = [&context, init, exp](jerry_external_handler_t handler, const char* key) {
+        jerry_value_t obj;
+        if (init) {
+            obj = jerry_function_external(handler);
+            jerry_object_set_sz(context, key, obj);
+        } else {
+            obj = jerry_object_get_sz(context, key);
+        }
+        jerry_object_set_native_ptr(obj, nullptr, exp);
+        jerry_value_free(obj);
+    };
 
-    auto velocityAtTime = jerry_function_external(_velocityAtTime);
-    jerry_object_set_sz(context, "velocityAtTime", velocityAtTime);
-    jerry_object_set_native_ptr(velocityAtTime, nullptr, exp);
-    jerry_value_free(velocityAtTime);
+    //set a float Value
+    auto setValue = [&context](const char* key, float val) {
+        auto obj = jerry_number(val);
+        jerry_object_set_sz(context, key, obj);
+        jerry_value_free(obj);
+    };
 
-    auto speed = jerry_number(0.0f);
-    jerry_object_set_sz(context, "speed", speed);
-    jerry_value_free(speed);
+    //register a new native function with shared data
+    auto addFunction = [&context](jerry_external_handler_t handler, const char* key, ExpContent* data) {
+        auto obj = jerry_function_external(handler);
+        jerry_object_set_sz(context, key, obj);
+        jerry_object_set_native_ptr(obj, &freeCb, data);
+        jerry_value_free(obj);
+    };
 
-    auto speedAtTime = jerry_function_external(_speedAtTime);
-    jerry_object_set_sz(context, "speedAtTime", speedAtTime);
-    jerry_object_set_native_ptr(speedAtTime, nullptr, exp);
-    jerry_value_free(speedAtTime);
+    //update shared ExpContent in-place
+    auto updateContent = [&context, exp, frameNo](const char* key, void* target) {
+        auto obj = jerry_object_get_sz(context, key);
+        auto data = static_cast<ExpContent*>(jerry_object_get_native_ptr(obj, &freeCb));
+        if (data) {
+            data->exp = exp;
+            data->frameNo = frameNo;
+            data->data = target;
+        } else {
+            TVGERR("LOTTIE", "ExpContent lost due to function overwrite");
+        }
+        jerry_value_free(obj);
+    };
 
-    auto propertyIndex = jerry_number(exp->property->ix);
-    jerry_object_set_sz(context, "propertyIndex", propertyIndex);
-    jerry_value_free(propertyIndex);
-
-    {
-        auto data =  _expcontent(exp, frameNo, exp->object, 7);
-
-        auto wiggle = jerry_function_external(_wiggle);
-        jerry_object_set_sz(context, "wiggle", wiggle);
-        jerry_object_set_native_ptr(wiggle, &freeCb, data);
-        jerry_value_free(wiggle);
-
-        auto temporalWiggle = jerry_function_external(_temporalWiggle);
-        jerry_object_set_sz(context, "temporalWiggle", temporalWiggle);
-        jerry_object_set_native_ptr(temporalWiggle, &freeCb, data);
-        jerry_value_free(temporalWiggle);
-
-        auto propertyGroup = jerry_function_external(_propertyGroup);
-        jerry_object_set_native_ptr(propertyGroup, &freeCb, data);
-        jerry_object_set_sz(context, "propertyGroup", propertyGroup);
-        jerry_value_free(propertyGroup);
-
-        auto loopIn = jerry_function_external(_loopIn);
-        jerry_object_set_sz(context, "loopIn", loopIn);
-        jerry_object_set_native_ptr(loopIn, &freeCb, data);
-        jerry_value_free(loopIn);
-
-        auto loopOut = jerry_function_external(_loopOut);
-        jerry_object_set_sz(context, "loopOut", loopOut);
-        jerry_object_set_native_ptr(loopOut, &freeCb, data);
-        jerry_value_free(loopOut);
-
-        auto loopInDuration = jerry_function_external(_loopInDuration);
-        jerry_object_set_sz(context, "loopInDuration", loopInDuration);
-        jerry_object_set_native_ptr(loopInDuration, &freeCb, data);
-        jerry_value_free(loopInDuration);
-
-        auto loopOutDuration = jerry_function_external(_loopOutDuration);
-        jerry_object_set_sz(context, "loopOutDuration", loopOutDuration);
-        jerry_object_set_native_ptr(loopOutDuration, &freeCb, data);
-        jerry_value_free(loopOutDuration);
-
-    }
-
-    //smooth(width=.2, samples=5, t=time)
-
-    auto key = jerry_function_external(_key);
-    jerry_object_set_sz(context, "key", key);
-    jerry_object_set_native_ptr(key, nullptr, exp);
-    jerry_value_free(key);
-
+    setFunction(_valueAtTime,    "valueAtTime");
+    setFunction(_velocityAtTime, "velocityAtTime");
+    setFunction(_speedAtTime,    "speedAtTime");
+    setFunction(_key,            "key");
     //key(markerName)
+    setFunction(_nearestKey,     "nearestKey");
 
-    auto nearestKey = jerry_function_external(_nearestKey);
-    jerry_object_set_native_ptr(nearestKey, nullptr, exp);
-    jerry_object_set_sz(context, "nearestKey", nearestKey);
-    jerry_value_free(nearestKey);
+    setValue("velocity", 0.0f);
+    setValue("speed", 0.0f);
+    setValue("propertyIndex", static_cast<float>(exp->property->ix));
+    setValue("numKeys", static_cast<float>(exp->property->frameCnt()));
 
-    auto numKeys = jerry_number((float)exp->property->frameCnt());
-    jerry_object_set_sz(context, "numKeys", numKeys);
-    jerry_value_free(numKeys);
+    if (init) {
+        {
+            auto data =  _expcontent(exp, frameNo, exp->object, 7);
+            addFunction(_wiggle,          "wiggle",          data);
+            addFunction(_temporalWiggle,  "temporalWiggle",  data);
+            addFunction(_propertyGroup,   "propertyGroup",   data);
+            addFunction(_loopIn,          "loopIn",          data);
+            addFunction(_loopOut,         "loopOut",         data);
+            addFunction(_loopInDuration,  "loopInDuration",  data);
+            addFunction(_loopOutDuration, "loopOutDuration", data);
+        }
 
-    //name
+        //smooth(width=.2, samples=5, t=time)
 
-    {
-        auto data = _expcontent(exp, frameNo, exp->layer, 2);
+        //name
 
-        //content("name"), #look for the named property from a layer
-        auto content = jerry_function_external(_content);
-        jerry_object_set_sz(context, EXP_CONTENT, content);
-        jerry_object_set_native_ptr(content, &freeCb, data);
-        jerry_value_free(content);
+        {
+            auto data =  _expcontent(exp, frameNo, exp->layer, 2);
+            //content("name"), #look for the named property from a layer
+            addFunction(_content, EXP_CONTENT, data);
+            addFunction(_effect, EXP_EFFECT, data);
+        }
+    } else {
+        // since they share the same ExpContent, updating one of them is enough.
+        // update _wiggle, _temporalWiggle, _propertyGroup, _loopIn, _loopOut, _loopInDuration, _loopOutDuration
+        updateContent("wiggle",    exp->object);
 
-        auto effect = jerry_function_external(_effect);
-        jerry_object_set_sz(context, EXP_EFFECT, effect);
-        jerry_object_set_native_ptr(effect, &freeCb, data);
-        jerry_value_free(effect);
+        // update _content, _effect since they share the same ExpContent
+        updateContent(EXP_CONTENT, exp->layer);
     }
-
-    auto effect = jerry_function_external(_effect);
-    jerry_object_set_sz(context, EXP_EFFECT, effect);
-    jerry_object_set_native_ptr(effect, &freeCb, _expcontent(exp, frameNo, exp->layer));
-    jerry_value_free(effect);
 
     //expansions per types
     if (exp->property->type == LottieProperty::Type::PathSet) _buildPath(context, frameNo, exp->property);
@@ -1165,6 +1271,10 @@ static void _buildMath(jerry_value_t context)
     jerry_object_set_sz(context, "$bm_div", bm_div);
     jerry_value_free(bm_div);
 
+    auto bm_mod = jerry_function_external(_mod);
+    jerry_object_set_sz(context, "$bm_mod", bm_mod);
+    jerry_value_free(bm_mod);
+
     auto mul = jerry_function_external(_mul);
     jerry_object_set_sz(context, "mul", mul);
     jerry_value_free(mul);
@@ -1184,6 +1294,10 @@ static void _buildMath(jerry_value_t context)
     auto div = jerry_function_external(_div);
     jerry_object_set_sz(context, "div", div);
     jerry_value_free(div);
+
+    auto mod = jerry_function_external(_mod);
+    jerry_object_set_sz(context, "mod", mod);
+    jerry_value_free(mod);
 
     auto clamp = jerry_function_external(_clamp);
     jerry_object_set_sz(context, "clamp", clamp);
@@ -1408,6 +1522,15 @@ LottieExpressions::~LottieExpressions()
 LottieExpressions::LottieExpressions()
 {
     jerry_init(JERRY_INIT_EMPTY);
+
+    //build magic string arrays from the magic pool
+    auto p = _magicPool;
+    for (uint32_t i = 0; i < MAGIC_STRING_COUNT; ++i) {
+        _magicStrings[i] = (const jerry_char_t*)p;
+        p += _magicLengths[i];
+    }
+    jerry_register_magic_strings(_magicStrings, MAGIC_STRING_COUNT, _magicLengths);
+
     _buildMath(buildGlobal());
 }
 
@@ -1456,6 +1579,12 @@ Point LottieExpressions::toPoint2d(jerry_value_t obj)
 RGB32 LottieExpressions::toColor(jerry_value_t obj)
 {
     return _color(obj);
+}
+
+
+float LottieExpressions::toFloat(jerry_value_t obj)
+{
+    return _number(obj);
 }
 
 

@@ -203,57 +203,12 @@ void LottieSlot::reset()
 
 void LottieSlot::apply(LottieProperty* prop, bool byDefault)
 {
-    auto copy = !overridden && !byDefault;
+    auto release = overridden || byDefault;
 
     //apply slot object to all targets
     ARRAY_FOREACH(pair, pairs) {
-        //backup the original properties before overwriting
-        switch (type) {
-            case LottieProperty::Type::Float: {
-                if (copy) pair->prop = new LottieFloat(static_cast<LottieTransform*>(pair->obj)->rotation);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::Scalar: {
-                if (copy) pair->prop = new LottieScalar(static_cast<LottieTransform*>(pair->obj)->scale);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::Vector: {
-                if (copy) pair->prop = new LottieVector(static_cast<LottieTransform*>(pair->obj)->position);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::Color: {
-                if (copy) pair->prop = new LottieColor(static_cast<LottieSolid*>(pair->obj)->color);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::Opacity: {
-                if (copy) {
-                    if (pair->obj->type == LottieObject::Type::Transform) pair->prop = new LottieOpacity(static_cast<LottieTransform*>(pair->obj)->opacity);
-                    else pair->prop = new LottieOpacity(static_cast<LottieSolid*>(pair->obj)->opacity);
-                }
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::ColorStop: {
-                if (copy) pair->prop = new LottieColorStop(static_cast<LottieGradient*>(pair->obj)->colorStops);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::TextDoc: {
-                if (copy) pair->prop = new LottieTextDoc(static_cast<LottieText*>(pair->obj)->doc);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            case LottieProperty::Type::Image: {
-                if (copy) pair->prop = new LottieBitmap(static_cast<LottieImage*>(pair->obj)->bitmap);
-                pair->obj->override(prop, !copy);
-                break;
-            }
-            default: break;
-        }
+        auto backup = pair->obj->override(prop, release);
+        if (!release) pair->prop = backup;
     }
 
     if (!byDefault) overridden = true;
@@ -350,13 +305,15 @@ void LottieFont::prepare()
 }
 
 
-void LottieImage::prepare()
+void LottieImage::prepare(bool external)
 {
     LottieObject::type = LottieObject::Image;
 
     //Prepare the Picture image
+    auto result = Result::Unknown;
     auto picture = Picture::gen();
-    auto result = (bitmap.size > 0) ? picture->load((const char*)bitmap.data, bitmap.size, bitmap.mimeType) : picture->load(bitmap.path);
+    if (bitmap.size > 0) result = picture->load((const char*)bitmap.data, bitmap.size, bitmap.mimeType);
+    else if (external) result = picture->load(bitmap.path);
     if (result == Result::Success) resolved = true;
     picture->size(bitmap.width, bitmap.height);
     bitmap.picture = picture;
@@ -621,6 +578,12 @@ void LottieGroup::prepare(LottieObject::Type type)
     }
 }
 
+LottieLayer::LottieLayer()
+{
+    autoOrient = false;
+    matteSrc = false;
+    effect = false;
+}
 
 LottieLayer::~LottieLayer()
 {

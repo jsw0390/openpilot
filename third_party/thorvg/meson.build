@@ -1,7 +1,7 @@
 project('thorvg',
         'cpp',
         default_options : ['buildtype=debugoptimized', 'b_sanitize=none', 'werror=false', 'optimization=3', 'cpp_std=c++14', 'strip=true'],
-        version : '1.0.0',
+        version : '1.0.4',
         license : 'MIT')
 
 v_array = meson.project_version().split('.')
@@ -23,22 +23,22 @@ endif
 # Engines
 all_engines = get_option('engines').contains('all')
 
-sw_engine = false
-if all_engines or get_option('engines').contains('sw')
-    sw_engine = true
-    config_h.set10('THORVG_SW_RASTER_SUPPORT', true)
+cpu_engine = false
+if all_engines or get_option('engines').contains('cpu')
+    cpu_engine = true
+    config_h.set10('THORVG_CPU_ENGINE_SUPPORT', true)
 endif
 
 gl_engine = false
 if all_engines or get_option('engines').contains('gl')
     gl_engine = true
-    config_h.set10('THORVG_GL_RASTER_SUPPORT', true)
+    config_h.set10('THORVG_GL_ENGINE_SUPPORT', true)
 endif
 
 wg_engine = false
 if all_engines or get_option('engines').contains('wg')
     wg_engine = true
-    config_h.set10('THORVG_WG_RASTER_SUPPORT', true)
+    config_h.set10('THORVG_WG_ENGINE_SUPPORT', true)
 endif
 
 # Partial Rendering
@@ -187,9 +187,9 @@ summary(
 
 summary(
   {
-    'SW': sw_engine,
+    'CPU': cpu_engine,
     'GL': gl_engine,
-    'WG': wg_engine,
+    'WebGPU': wg_engine,
   },
   section: 'Raster Engine',
   bool_yn: true,

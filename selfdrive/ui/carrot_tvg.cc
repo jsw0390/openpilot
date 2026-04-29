@@ -1,9 +1,3 @@
-// CarrotPilot ThorVG 렌더러 — 최소 PoC
-// NanoVG를 대체할 ThorVG 기반 HUD 렌더링
-//
-// 구조: ThorVG SwCanvas → CPU 버퍼 렌더링 → GL 텍스처 업로드 → 화면 합성
-// 이유: Qt의 GL 컨텍스트와 충돌 없이 안전하게 동작
-
 #include "selfdrive/ui/carrot_tvg.h"
 
 #include <thorvg.h>
@@ -15,13 +9,11 @@
 #endif
 
 #include <cstring>
-#include <memory>
 
 #include "common/util.h"
-#include "cereal/messaging/messaging.h"
 
 // ─── 상태 ───
-static std::unique_ptr<tvg::SwCanvas> tvg_canvas;
+static tvg::SwCanvas *tvg_canvas = nullptr;
 static uint32_t *tvg_buffer = nullptr;
 static int tvg_w = 0, tvg_h = 0;
 static bool tvg_initialized = false;
@@ -107,7 +99,7 @@ static void init_gl_overlay(int w, int h) {
 void tvg_init(int w, int h) {
     if (tvg_initialized) return;
 
-    tvg::Initializer::init(0, tvg::CanvasEngine::Sw);
+    tvg::Initializer::init(0);
 
     tvg_w = w;
     tvg_h = h;
@@ -149,7 +141,9 @@ void tvg_draw(UIState *s, int w, int h) {
 
     // 버퍼 클리어 (투명)
     memset(tvg_buffer, 0, tvg_w * tvg_h * sizeof(uint32_t));
-    tvg_canvas->clear(false);
+
+    // 이전 프레임 도형 제거
+    tvg_canvas->remove();
 
     // ── 여기서부터 ThorVG 드로잉 ──
 
@@ -158,21 +152,13 @@ void tvg_draw(UIState *s, int w, int h) {
     float box_w = 220, box_h = 130;
     {
         auto bg = tvg::Shape::gen();
-        bg->appendRect(cx - box_w / 2, 40, box_w, box_h, 25);
+        bg->appendRect(cx - box_w / 2, 40, box_w, box_h, 25, 25);
         bg->fill(0, 0, 0, 160);  // 반투명 검정
-        tvg_canvas->push(std::move(bg));
+        tvg_canvas->add(bg);
     }
 
-    // 2) 속도 값 표시 — cereal에서 실시간 데이터 읽기
+    // 2) 속도 값 — 상태에 따른 원형 표시
     {
-        SubMaster &sm = *(s->sm);
-        float v_ego = 0;
-        if (sm.alive("carState")) {
-            v_ego = sm["carState"].getCarState().getVEgo();
-        }
-        int speed_kph = (int)(v_ego * 3.6f + 0.5f);
-
-        // 속도 숫자 (큰 원)
         float speed_r = 45;
         auto circle = tvg::Shape::gen();
         circle->appendCircle(cx, 105, speed_r, speed_r);
@@ -185,13 +171,13 @@ void tvg_draw(UIState *s, int w, int h) {
         } else {
             circle->fill(23, 51, 73, 200);     // 남색 (비활성)
         }
-        tvg_canvas->push(std::move(circle));
+        tvg_canvas->add(circle);
     }
 
     // 3) 상단 상태 바
     {
         auto bar = tvg::Shape::gen();
-        bar->appendRect(0, 0, (float)w, 4, 0);
+        bar->appendRect(0, 0, (float)w, 4, 0, 0);
         if (s->status == STATUS_ENGAGED) {
             bar->fill(23, 134, 68, 255);
         } else if (s->status == STATUS_OVERRIDE) {
@@ -199,24 +185,25 @@ void tvg_draw(UIState *s, int w, int h) {
         } else {
             bar->fill(23, 51, 73, 255);
         }
-        tvg_canvas->push(std::move(bar));
+        tvg_canvas->add(bar);
     }
 
-    // 4) "ThorVG" 워터마크 (우하단, 작은 텍스트 대신 도형으로)
+    // 4) "TV" 워터마크 (우하단, 도형으로)
     {
-        // T 자 모양 (간단한 기하학)
-        float tx = w - 120, ty = h - 50;
+        float tx = w - 120.0f, ty = h - 50.0f;
+
+        // T 글자
         auto t_bar = tvg::Shape::gen();
-        t_bar->appendRect(tx, ty, 40, 5, 0);
+        t_bar->appendRect(tx, ty, 40, 5, 0, 0);
         t_bar->fill(255, 255, 255, 80);
-        tvg_canvas->push(std::move(t_bar));
+        tvg_canvas->add(t_bar);
 
         auto t_stem = tvg::Shape::gen();
-        t_stem->appendRect(tx + 17, ty, 6, 25, 0);
+        t_stem->appendRect(tx + 17, ty, 6, 25, 0, 0);
         t_stem->fill(255, 255, 255, 80);
-        tvg_canvas->push(std::move(t_stem));
+        tvg_canvas->add(t_stem);
 
-        // V 모양
+        // V 글자
         auto v_shape = tvg::Shape::gen();
         v_shape->moveTo(tx + 50, ty);
         v_shape->lineTo(tx + 60, ty + 25);
@@ -226,11 +213,11 @@ void tvg_draw(UIState *s, int w, int h) {
         v_shape->lineTo(tx + 54, ty);
         v_shape->close();
         v_shape->fill(255, 255, 255, 80);
-        tvg_canvas->push(std::move(v_shape));
+        tvg_canvas->add(v_shape);
     }
 
     // ── ThorVG 렌더링 실행 ──
-    tvg_canvas->draw();
+    tvg_canvas->draw(true);
     tvg_canvas->sync();
 
     // GL 텍스처로 업로드 & 화면에 합성
@@ -239,7 +226,10 @@ void tvg_draw(UIState *s, int w, int h) {
 
 // ─── 정리 ───
 void tvg_destroy() {
-    tvg_canvas.reset();
+    if (tvg_canvas) {
+        delete tvg_canvas;
+        tvg_canvas = nullptr;
+    }
     if (tvg_buffer) {
         delete[] tvg_buffer;
         tvg_buffer = nullptr;
@@ -260,6 +250,6 @@ void tvg_destroy() {
         glDeleteProgram(tvg_shader_program);
         tvg_shader_program = 0;
     }
-    tvg::Initializer::term(tvg::CanvasEngine::Sw);
+    tvg::Initializer::term();
     tvg_initialized = false;
 }

@@ -190,6 +190,20 @@ TVG_API bool tvg_paint_get_visible(const Tvg_Paint paint)
     return false;
 }
 
+TVG_API uint32_t tvg_paint_get_id(const Tvg_Paint paint)
+{
+    if (paint) return reinterpret_cast<const Paint*>(paint)->id;
+    return 0;
+}
+
+TVG_API Tvg_Result tvg_paint_set_id(Tvg_Paint paint, uint32_t id)
+{
+    if (paint) {
+        reinterpret_cast<Paint*>(paint)->id = id;
+        return TVG_RESULT_SUCCESS;
+    }
+    return TVG_RESULT_INVALID_ARGUMENT;
+}
 
 TVG_API uint16_t tvg_paint_ref(Tvg_Paint paint)
 {
@@ -654,6 +668,14 @@ TVG_API const Tvg_Paint tvg_picture_get_paint(Tvg_Paint picture, uint32_t id)
     return nullptr;
 }
 
+TVG_API Tvg_Result tvg_picture_set_accessible(Tvg_Paint picture, bool accessible)
+{
+    if (picture) {
+        reinterpret_cast<Picture*>(picture)->accessible = accessible;
+        return TVG_RESULT_SUCCESS;
+    }
+    return TVG_RESULT_INVALID_ARGUMENT;
+}
 
 TVG_API Tvg_Result tvg_picture_set_origin(Tvg_Paint picture, float x, float y)
 {
@@ -668,6 +690,12 @@ TVG_API Tvg_Result tvg_picture_get_origin(const Tvg_Paint picture, float* x, flo
     return TVG_RESULT_INVALID_ARGUMENT;
 }
 
+
+TVG_API Tvg_Result tvg_picture_set_filter(Tvg_Paint picture, Tvg_Filter_Method method)
+{
+    if (picture) return (Tvg_Result) reinterpret_cast<Picture*>(picture)->filter(FilterMethod(method));
+    return TVG_RESULT_INVALID_ARGUMENT;
+}
 
 /************************************************************************/
 /* Gradient API                                                         */
@@ -895,6 +923,13 @@ TVG_API Tvg_Result tvg_text_set_text(Tvg_Paint text, const char* utf8)
 }
 
 
+ TVG_API const char* tvg_text_get_text(const Tvg_Paint text)
+ {
+    return text ? reinterpret_cast<Text*>(text)->text() : nullptr;
+ }
+
+
+
 TVG_API Tvg_Result tvg_text_align(Tvg_Paint text, float x, float y)
 {
     if (text) return (Tvg_Result) reinterpret_cast<Text*>(text)->align(x, y);
@@ -944,9 +979,30 @@ TVG_API Tvg_Result tvg_text_wrap_mode(Tvg_Paint text, Tvg_Text_Wrap mode)
 }
 
 
+TVG_API uint32_t tvg_text_line_count(Tvg_Paint text)
+{
+    if (text) return reinterpret_cast<Text*>(text)->lines();
+    return 0;
+}
+
+
 TVG_API Tvg_Result tvg_text_spacing(Tvg_Paint text, float letter, float line)
 {
     if (text) return (Tvg_Result) reinterpret_cast<Text*>(text)->spacing(letter, line);
+    return TVG_RESULT_INVALID_ARGUMENT;
+}
+
+
+TVG_API Tvg_Result tvg_text_get_text_metrics(const Tvg_Paint text, Tvg_Text_Metrics* metrics)
+{
+    if (text && metrics) return (Tvg_Result) reinterpret_cast<Text*>(text)->metrics(*reinterpret_cast<TextMetrics*>(metrics));
+    return TVG_RESULT_INVALID_ARGUMENT;
+}
+
+
+TVG_API Tvg_Result tvg_text_get_glyph_metrics(const Tvg_Paint text, const char* ch, Tvg_Glyph_Metrics* metrics)
+{
+    if (text && metrics) return (Tvg_Result) reinterpret_cast<Text*>(text)->metrics(ch, *reinterpret_cast<GlyphMetrics*>(metrics));
     return TVG_RESULT_INVALID_ARGUMENT;
 }
 
@@ -1121,6 +1177,11 @@ TVG_API uint32_t tvg_accessor_generate_id(const char* name)
     return Accessor::id(name);
 }
 
+TVG_API const char* tvg_accessor_get_name(Tvg_Accessor accessor, uint32_t id)
+{
+    if (accessor) return reinterpret_cast<Accessor*>(accessor)->name(id);
+    return nullptr;
+}
 
 /************************************************************************/
 /* Lottie Animation API                                                 */
@@ -1200,6 +1261,19 @@ TVG_API Tvg_Result tvg_lottie_animation_get_marker(Tvg_Animation animation, uint
     return TVG_RESULT_NOT_SUPPORTED;
 }
 
+TVG_API Tvg_Result tvg_lottie_animation_get_marker_info(Tvg_Animation animation, uint32_t idx, const char** name, float* begin, float* end)
+{
+#ifdef THORVG_LOTTIE_LOADER_SUPPORT
+    const char* n = nullptr;
+    if (animation) n = reinterpret_cast<LottieAnimation*>(animation)->marker(idx, begin, end);
+    if (name) *name = n;
+    if (n) return TVG_RESULT_SUCCESS;
+    auto markerCnt = reinterpret_cast<LottieAnimation*>(animation)->markersCnt();
+    if (markerCnt > 0 && idx >= markerCnt) return TVG_RESULT_INVALID_ARGUMENT;
+    return TVG_RESULT_INSUFFICIENT_CONDITION;
+#endif
+    return TVG_RESULT_NOT_SUPPORTED;
+}
 
 TVG_API Tvg_Result tvg_lottie_animation_tween(Tvg_Animation animation, float from, float to, float progress)
 {

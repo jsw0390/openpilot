@@ -10,7 +10,7 @@
 
 #define TVG_VERSION_MAJOR 1  // for compile-time checks
 #define TVG_VERSION_MINOR 0  // for compile-time checks
-#define TVG_VERSION_MICRO 0  // for compile-time checks
+#define TVG_VERSION_MICRO 4  // for compile-time checks
 
 #ifndef TVG_STATIC
     #ifdef _WIN32
@@ -113,7 +113,31 @@ typedef enum {
 
 
 /**
+ * @brief A data structure representing a point in two-dimensional space.
+ */
+typedef struct {
+    float x, y;
+} Tvg_Point;
+
+
+/**
+ * @brief A data structure representing a three-dimensional matrix.
+ *
+ * The elements e11, e12, e21 and e22 represent the rotation matrix, including the scaling factor.
+ * The elements e13 and e23 determine the translation of the object along the x and y-axis, respectively.
+ * The elements e31 and e32 are set to 0, e33 is set to 1.
+ */
+typedef struct {
+    float e11, e12, e13;
+    float e21, e22, e23;
+    float e31, e32, e33;
+} Tvg_Matrix;
+
+
+/**
  * @brief Enumeration specifying the methods of combining the 8-bit color channels into 32-bit color.
+ *
+ * @ingroup ThorVGCapi_Canvas
  */
 typedef enum {
     TVG_COLORSPACE_ABGR8888 = 0,  ///< The channels are joined in the order: alpha, blue, green, red. Colors are alpha-premultiplied.
@@ -135,6 +159,8 @@ typedef enum {
  *       or heavy object movements), the overhead of tracking changes and managing update regions may outweigh the benefits,
  *       resulting in decreased performance compared to the default rendering mode. Thus, it is recommended to benchmark
  *       both modes in your specific use case to determine the optimal setting.
+ *
+ * @ingroup ThorVGCapi_Initializer
  *
  * @since 1.0
  */
@@ -312,26 +338,63 @@ typedef enum {
 
 /** \} */  // end addtogroup ThorVGCapi_Text
 
+
 /**
- * @brief A data structure representing a point in two-dimensional space.
+ * @addtogroup ThorVGCapi_Picture
+ * \{
  */
-typedef struct {
-    float x, y;
-} Tvg_Point;
-
 
 /**
- * @brief A data structure representing a three-dimensional matrix.
+ * @brief Defines the image filtering method used during image scaling or transformation.
  *
- * The elements e11, e12, e21 and e22 represent the rotation matrix, including the scaling factor.
- * The elements e13 and e23 determine the translation of the object along the x and y-axis, respectively.
- * The elements e31 and e32 are set to 0, e33 is set to 1.
+ * @note Experimental API
+ */
+typedef enum {
+    TVG_FILTER_METHOD_BILINEAR = 0,  ///< Smooth interpolation using surrounding pixels for higher quality.
+    TVG_FILTER_METHOD_NEAREST        ///< Fast filtering using nearest-neighbor sampling.
+} Tvg_Filter_Method;
+
+
+/**
+ * @brief Describes the font metrics of a text object.
+ *
+ * Provides the basic vertical layout metrics used for text rendering,
+ * such as ascent, descent, and line spacing (linegap).
+ *
+ * @see tvg_text_get_text_metrics()
+ * @note Experimental API
  */
 typedef struct {
-    float e11, e12, e13;
-    float e21, e22, e23;
-    float e31, e32, e33;
-} Tvg_Matrix;
+    float ascent;   ///< Distance from the baseline to the top of the highest glyph (usually positive).
+    float descent;  ///< Distance from the baseline to the bottom of the lowest glyph (usually negative, as in TTF).
+    float linegap;  ///< Additional spacing recommended between lines (leading).
+    float advance;  ///< The total vertical advance between lines of text: ascent - descent + linegap (i.e., ascent + |descent| + linegap when descent is negative).
+} Tvg_Text_Metrics;
+
+
+/**
+ * @brief Describes the layout metrics of a glyph.
+ *
+ * Provides the basic layout metrics used for positioning an individual glyph,
+ * including its advance along the baseline direction, bearing relative to the
+ * inline axis origin, and its bounding box in local glyph space.
+ *
+ * The advance value represents the distance the pen position moves along the
+ * baseline (inline direction), regardless of whether the text is laid out
+ * horizontally or vertically.
+ *
+ * The bounding box is defined in the glyph’s local coordinate space and is
+ * independent of any layout direction or transformation.
+ *
+ * @see tvg_text_get_glyph_metrics()
+ * @note Experimental API
+ */
+typedef struct {
+    float advance;    ///< The advance distance along the baseline (inline) direction.
+    float bearing;    ///< The bearing from the origin to the glyph’s visible bound along the inline-start direction.
+    Tvg_Point min;    ///< The minimum point of the glyph bounding box in local space.
+    Tvg_Point max;    ///< The maximum point of the glyph bounding box in local space.
+} Tvg_Glyph_Metrics;
 
 
 /**
@@ -349,9 +412,11 @@ typedef struct {
  *
  * @see tvg_picture_set_asset_resolver()
  *
- * @since Experimental API
+ * @note Experimental API
  */
 typedef bool (*Tvg_Picture_Asset_Resolver)(Tvg_Paint paint, const char* src, void* data);
+
+/** \} */   // end addtogroup ThorVGCapi_Picture
 
 
 /**
@@ -885,6 +950,37 @@ TVG_API Tvg_Result tvg_paint_set_visible(Tvg_Paint paint, bool visible);
  */
 TVG_API bool tvg_paint_get_visible(const Tvg_Paint paint);
 
+
+/**
+ * @brief Gets the ID of the Paint object.
+ *
+ * @param[in] paint The paint object whose ID will be returned.
+ *
+ * @return The ID of the paint object, or 0 if the ID is not set.
+ *
+ * @see tvg_picture_get_paint()
+ * @see tvg_accessor_generate_id()
+ * @see tvg_paint_set_id()
+ *
+ * @note Experimental API
+ */
+TVG_API uint32_t tvg_paint_get_id(const Tvg_Paint paint);
+
+/**
+ * @brief Sets the ID of the Paint object.
+ *
+ * The ID is used to specify a paint instance in a scene.
+ *
+ * @param[in] paint The paint object whose ID will be set.
+ * @param[in] id The ID to assign to the paint object.
+ *
+ * @see tvg_picture_get_paint()
+ * @see tvg_accessor_generate_id()
+ * @see tvg_paint_get_id()
+ *
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_paint_set_id(Tvg_Paint paint, uint32_t id);
 
 /**
  * @brief Scales the given Tvg_Paint object by the given factor.
@@ -2141,11 +2237,48 @@ TVG_API Tvg_Result tvg_picture_get_origin(const Tvg_Paint picture, float* x, flo
  *
  * @return A pointer to the paint object that matches the given identifier, or @c nullptr if no matching paint object is found.
  *
+ * @note Setting @ref tvg_picture_set_accessible() to @c true enables more efficient access.
+ *
  * @see tvg_accessor_generate_id()
  * @since 1.0
  */
 TVG_API const Tvg_Paint tvg_picture_get_paint(Tvg_Paint picture, uint32_t id);
 
+
+/**
+ * @brief Sets the image filtering method for rendering this picture.
+ *
+ * Specifies how the image data should be filtered when it is scaled or transformed
+ * during rendering. This affects the visual quality and performance of the output.
+ *
+ * @param[in] picture A Tvg_Paint pointer to the picture object.
+ * @param[in] method The filtering method to apply. Default is @c TVG_FILTER_METHOD_BILINEAR.
+ *
+ * @see Tvg_Filter_Method
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_picture_set_filter(Tvg_Paint picture, Tvg_Filter_Method method);
+
+/**
+ * @brief Enable or disable accessible mode for a Picture.
+ *
+ * When accessible mode is enabled, the Picture maintains an internal mapping
+ * of ID-accessible vector assets nodes (such as SVG), allowing efficient access to Paint objects
+ * and their associated identifier information via Accessor APIs.
+ *
+ * When disabled, no additional mapping is maintained and all nodes are treated
+ * as general traversal targets.
+ *
+ * @param[in] picture The target Picture object.
+ * @param[in] accessible Set to @c true to enable accessible mode, or @c false to disable it.
+ *
+ * @see tvg_accessor_generate_id()
+ * @see tvg_accessor_get_name()
+ * @see tvg_picture_get_paint()
+ *
+ * @since 1.0
+ */
+TVG_API Tvg_Result tvg_picture_set_accessible(Tvg_Paint picture, bool accessible);
 
 /** \} */   // end defgroup ThorVGCapi_Picture
 
@@ -2446,9 +2579,28 @@ TVG_API Tvg_Result tvg_text_set_size(Tvg_Paint text, float size);
  * @param[in] text A Tvg_Paint pointer to the text object.
  * @param[in] utf8 The multi-byte text encoded with utf8 string to be rendered.
  *
+ * @see tvg_text_get_text()
+ *
  * @since 1.0
  */
 TVG_API Tvg_Result tvg_text_set_text(Tvg_Paint text, const char* utf8);
+
+
+ /**
+  * @brief Returns the currently assigned unicode text.
+  *
+  * This function retrieves the unicode string that is currently set
+  * for rendering. The returned text is encoded in UTF-8.
+  *
+  * @param[in] text A Tvg_Paint pointer to the text object.
+  *
+  * @return The UTF-8 encoded multi-byte text string.
+  *
+  * @see tvg_text_set_text()
+  *
+  * @note Experimental API
+  */
+ TVG_API const char* tvg_text_get_text(const Tvg_Paint text);
 
 
 /**
@@ -2488,6 +2640,7 @@ TVG_API Tvg_Result tvg_text_align(Tvg_Paint text, float x, float y);
  */
 TVG_API Tvg_Result tvg_text_layout(Tvg_Paint text, float w, float h);
 
+
 /**
  * @brief Sets the text wrapping mode for this text object.
  *
@@ -2499,10 +2652,27 @@ TVG_API Tvg_Result tvg_text_layout(Tvg_Paint text, float w, float h);
  * @param[in] mode The wrapping strategy to apply. Default is @c TVG_TEXT_WRAP_NONE.
  *
  * @see Tvg_Text_Wrap
+ * @see tvg_text_line_count()
  * @since 1.0
  */
 TVG_API Tvg_Result tvg_text_wrap_mode(Tvg_Paint text, Tvg_Text_Wrap mode);
 
+
+/**
+ * @brief Returns the number of text lines.
+ *
+ * This function retrieves the number of lines generated after applying text layout and wrapping.
+ * The returned value reflects the current wrapping configuration set by tvg_text_wrap_mode().
+ * The line count is also increased by explicit line feed characters ('\n') contained in the text.
+ *
+ * @param[in] text A Tvg_Paint pointer to the text object.
+ *
+ * @return The total number of lines.
+ *
+ * @see tvg_text_wrap_mode()
+ * @note Experimental API
+ */
+ TVG_API uint32_t tvg_text_line_count(Tvg_Paint text);
 
 /**
  * @brief Set the spacing scale factors for text layout.
@@ -2609,6 +2779,51 @@ TVG_API Tvg_Result tvg_text_set_color(Tvg_Paint text, uint8_t r, uint8_t g, uint
  * @since 0.15
  */
 TVG_API Tvg_Result tvg_text_set_gradient(Tvg_Paint text, Tvg_Gradient gradient);
+
+
+/**
+ * @brief Retrieves the layout metrics of the text object.
+ *
+ * Fills the provided @ref Tvg_Text_Metrics structure with the font layout values of this text object,
+ * such as ascent, descent, linegap, and line advance.
+ *
+ * The returned values reflect the font size applied to the text object,
+ * but do not include any transformations (e.g., scale, rotation, or translation).
+ *
+ * @param[in] text A Tvg_Paint pointer to the text object.
+ * @param[out] metrics A pointer to a @ref Tvg_Text_Metrics structure to be filled with the resulting values.
+ *
+ * @return TVG_RESULT_INSUFFICIENT_CONDITION if no font or size has been set yet.
+ *
+ * @see Tvg_Text_Metrics
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_text_get_text_metrics(const Tvg_Paint text, Tvg_Text_Metrics* metrics);
+
+
+/**
+ * @brief Retrieves the layout metrics of a glyph in the text object.
+ *
+ * Fills the provided @ref Tvg_Glyph_Metrics structure with the horizontal layout values
+ * of the specified glyph, such as advance, left-side bearing, and bounding box.
+ *
+ * The returned values reflect the font size applied to the text object,
+ * but do not include any transformations (e.g., scale, rotation, or translation).
+ *
+ * The input character must be a single UTF-8 encoded character.
+ *
+ * @param[in] text A Tvg_Paint pointer to the text object.
+ * @param[in] ch A pointer to a UTF-8 encoded character.
+ * @param[out] metrics A pointer to a @ref Tvg_Glyph_Metrics structure to be filled with the resulting values.
+ *
+ * @return TVG_RESULT_INSUFFICIENT_CONDITION if no font or size has been set yet.
+ * @return TVG_RESULT_INVALID_ARGUMENT if the given character is invalid or not supported.
+ *
+ * @see Tvg_Glyph_Metrics
+ * @note Currently, ThorVG only supports horizontal text layout.
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_text_get_glyph_metrics(const Tvg_Paint text, const char* ch, Tvg_Glyph_Metrics* metrics);
 
 
 /**
@@ -3009,6 +3224,28 @@ TVG_API Tvg_Result tvg_accessor_set(Tvg_Accessor accessor, Tvg_Paint paint, bool
  */
 TVG_API uint32_t tvg_accessor_generate_id(const char* name);
 
+/**
+ * @brief Retrieve the original name string from a given unique ID.
+ *
+ * Returns the name associated with the specified identifier.
+ *
+ * This method is only valid when @ref tvg_picture_set_accessible() is set to @c true
+ * for the Picture associated with the given @p paint in @ref tvg_accessor_set() Otherwise, the name
+ * information may not be available.
+ *
+ * @param[in] accessor An accessor object.
+ * @param[in] id The unique identifier.
+ *
+ * @return The corresponding name string, or @c nullptr if not found or unavailable.
+ *
+ * @see tvg_accessor_generate_id()
+ * @see tvg_accessor_set()
+ * @see tvg_picture_set_accessible()
+ *
+ * @note This function is only available within Accessor callbacks registered via @ref tvg_accessor_set().
+ * @note Experimental API
+ */
+TVG_API const char* tvg_accessor_get_name(Tvg_Accessor accessor, uint32_t id);
 
 /** \} */   // end defgroup ThorVGCapi_Accessor
 
@@ -3121,6 +3358,25 @@ TVG_API Tvg_Result tvg_lottie_animation_get_markers_cnt(Tvg_Animation animation,
  */
 TVG_API Tvg_Result tvg_lottie_animation_get_marker(Tvg_Animation animation, uint32_t idx, const char** name);
 
+/**
+ * @brief Retrieves marker information by index.
+ *
+ * @param[in] animation The Lottie animation object.
+ * @param[in] idx The zero-based index of the animation marker.
+ * @param[out] name Pointer to receive the marker name.
+ *                  Pass @c nullptr if the value is not required.
+ * @param[out] begin Pointer to receive the marker's starting frame.
+ *                   Pass @c nullptr if the value is not required.
+ * @param[out] end Pointer to receive the marker's ending frame.
+ *                 Pass @c nullptr if the value is not required.
+ *
+ * @retval TVG_RESULT_INVALID_ARGUMENT if @p idx is out of range.
+ * @retval TVG_RESULT_INSUFFICIENT_CONDITION In case the animation is not loaded.
+ *
+ * @see tvg_lottie_animation_get_markers_cnt()
+ * @note Experimental API
+ */
+TVG_API Tvg_Result tvg_lottie_animation_get_marker_info(Tvg_Animation animation, uint32_t idx, const char** name, float* begin, float* end);
 
 /**
  * @brief Interpolates between two frames over a specified duration.

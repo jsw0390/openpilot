@@ -19,6 +19,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+/*
+ * Originally dual-licensed by Richard Geldreich <richgel99@gmail.com> between 1994-2020.
+ * Public Domain or Apache License 2.0.
+ * ThorVG uses it under the Public Domain terms.
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
