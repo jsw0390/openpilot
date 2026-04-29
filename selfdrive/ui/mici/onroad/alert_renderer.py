@@ -174,13 +174,7 @@ class AlertRenderer(Widget):
       icon_margin_y = 5
 
     elif event_name == 'laneChange':
-      CS = ui_state.sm['carState']
-      if CS.leftBlinker:
-        icon_side = IconSide.left
-      elif CS.rightBlinker:
-        icon_side = IconSide.right
-      else:
-        icon_side = self._last_icon_side
+      icon_side = self._last_icon_side
       txt_icon = self._txt_turn_signal_left if self._last_icon_side == 'left' else self._txt_turn_signal_right
       icon_margin_x = 2
       icon_margin_y = 5
@@ -264,8 +258,8 @@ class AlertRenderer(Widget):
     else:
       icon_alpha = int(min(self._turn_signal_alpha_filter.x, 255))
 
-    rl.draw_texture(alert_layout.icon.texture, pos_x, int(self._rect.y + alert_layout.icon.margin_y),
-                    rl.Color(255, 255, 255, int(icon_alpha * self._alpha_filter.x)))
+    rl.draw_texture_ex(alert_layout.icon.texture, rl.Vector2(pos_x, self._rect.y + alert_layout.icon.margin_y), 0.0, 1.0,
+                       rl.Color(255, 255, 255, int(icon_alpha * self._alpha_filter.x)))
 
   def _draw_background(self, alert: Alert) -> None:
     # draw top gradient for alert text at top
@@ -305,12 +299,12 @@ class AlertRenderer(Widget):
     # TODO: there should be a common way to determine font size based on text length to maximize rect
     if len(alert_text1) <= 12:
       can_draw_second_line = True
-      font_size = 60 # 92 - 10
+      font_size = 92 - 10
     elif len(alert_text1) <= 16:
       can_draw_second_line = True
-      font_size = 50 #70
+      font_size = 70
     else:
-      font_size = 40 #64 - 10
+      font_size = 64 - 10
 
     if icon_side is not None:
       font_size -= 10
@@ -332,8 +326,6 @@ class AlertRenderer(Widget):
 
     alert_text2 = alert.text2.lower()
 
-    #print(f"Alert: {alert.text1} | {alert.text2} | {alert.size} | {alert.status} | {alert.visual_alert} | {alert.alert_type}")
-
     # randomize chars and length for testing
     if DEBUG:
       if time.monotonic() - self._text_gen_time > 0.5:
@@ -341,13 +333,13 @@ class AlertRenderer(Widget):
         self._text_gen_time = time.monotonic()
       alert_text2 = self._alert_text2_gen or alert_text2
 
-    if (can_draw_second_line or alert.size != AlertSize.small) and alert_text2:
+    if can_draw_second_line and alert_text2:
       last_line_h = self._alert_text1_label.rect.y + self._alert_text1_label.get_content_height(int(alert_layout.text_rect.width))
       last_line_h -= 4
-      if len(alert_text2) > 24:
-        small_font_size = 32
-      elif len(alert_text2) > 16:
+      if len(alert_text2) > 18:
         small_font_size = 36
+      elif len(alert_text2) > 24:
+        small_font_size = 32
       else:
         small_font_size = 40
       text_rect2 = rl.Rectangle(

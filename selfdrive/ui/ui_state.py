@@ -13,6 +13,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.hardware import HARDWARE, PC
 
 BACKLIGHT_OFFROAD = 65 if HARDWARE.get_device_type() == "mici" else 50
+PARAM_UPDATE_TIME = 5.0
 
 
 class UIStatus(Enum):
@@ -32,7 +33,6 @@ class UIState:
 
   def _initialize(self):
     self.params = Params()
-    self.params_memory = Params("/dev/shm/params")
     self.sm = messaging.SubMaster(
       [
         "modelV2",
@@ -55,12 +55,8 @@ class UIState:
         "carOutput",
         "carControl",
         "liveParameters",
+        "testJoystick",
         "rawAudioData",
-        "carrotMan",
-        "peripheralState",
-        "liveDelay",
-        "liveTorqueParameters",
-        "lateralPlan",
       ]
     )
 
@@ -68,7 +64,6 @@ class UIState:
 
     # UI Status tracking
     self.status: UIStatus = UIStatus.DISENGAGED
-    self.lat_active: bool = False
     self.started_frame: int = 0
     self.started_time: float = 0.0
     self._engaged_prev: bool = False
@@ -84,24 +79,24 @@ class UIState:
     self.panda_type: log.PandaState.PandaType = log.PandaState.PandaType.unknown
     self.personality: log.LongitudinalPersonality = log.LongitudinalPersonality.standard
     self.has_longitudinal_control: bool = False
+    self.is_body: bool | None = None
     self.CP: car.CarParams | None = None
     self.light_sensor: float = -1.0
-    self._param_update_time: float = 0.0
+    self._param_update_time: float = -PARAM_UPDATE_TIME
 
     # Callbacks
     self._offroad_transition_callbacks: list[Callable[[], None]] = []
     self._engaged_transition_callbacks: list[Callable[[], None]] = []
-
-    # Brightness and UI options
-    self.show_brightness_ratio: float = 1.0
-
-    self.update_params()
+    self._on_body_changed_callbacks: list[Callable[[], None]] = []
 
   def add_offroad_transition_callback(self, callback: Callable[[], None]):
     self._offroad_transition_callbacks.append(callback)
 
   def add_engaged_transition_callback(self, callback: Callable[[], None]):
     self._engaged_transition_callbacks.append(callback)
+
+  def add_on_body_changed_callbacks(self, callback: Callable[[], None]):
+    self._on_body_changed_callbacks.append(callback)
 
   @property
   def engaged(self) -> bool:
@@ -118,7 +113,7 @@ class UIState:
     self.sm.update(0)
     self._update_state()
     self._update_status()
-    if time.monotonic() - self._param_update_time > 5.0:
+    if time.monotonic() - self._param_update_time >= PARAM_UPDATE_TIME:
       self.update_params()
     device.update()
 
@@ -162,8 +157,6 @@ class UIState:
       else:
         self.status = UIStatus.ENGAGED if ss.enabled else UIStatus.DISENGAGED
 
-      self.lat_active = self.sm["carControl"].latActive
-
     # Check for engagement state changes
     if self.engaged != self._engaged_prev:
       for callback in self._engaged_transition_callbacks:
@@ -193,10 +186,10 @@ class UIState:
       else:
         self.has_longitudinal_control = self.CP.openpilotLongitudinalControl
 
-    self.show_debug_ui = self.params.get_int("ShowDebugUI")
-    self.show_date_time = self.params.get_int("ShowDateTime")
-    self.show_radar_info = self.params.get_int("ShowRadarInfo")
-    self.show_brightness_ratio: float = self.params.get_int("ShowCustomBrightness") / 100.0
+      if self.is_body != self.CP.notCar:
+        self.is_body = self.CP.notCar
+        for callback in self._on_body_changed_callbacks:
+          callback()
 
     self._param_update_time = time.monotonic()
 
@@ -212,10 +205,8 @@ class Device:
 
     self._offroad_brightness: int = BACKLIGHT_OFFROAD
     self._last_brightness: int = 0
-    self._brightness_filter = FirstOrderFilter(BACKLIGHT_OFFROAD, 2.00, 1 / gui_app.target_fps)
+    self._brightness_filter = FirstOrderFilter(BACKLIGHT_OFFROAD, 10.00, 1 / gui_app.target_fps)
     self._brightness_thread: threading.Thread | None = None
-    self._brightness_timer: int = 0
-    self._BRIGHTNESS_DELAY: int = 200
 
   @property
   def awake(self) -> bool:
@@ -266,35 +257,6 @@ class Device:
         clipped_brightness = ((clipped_brightness + 16.0) / 116.0) ** 3.0
 
       clipped_brightness = float(np.interp(clipped_brightness, [0, 1], [30, 100]))
-      # 이벤트 감지 시 타이머 리셋
-      ss = ui_state.sm['selfdriveState']
-      has_event = ss.alertSize != 0 # and ss.alertStatus != log.SelfdriveState.AlertStatus.normal
-      if has_event:
-        self._brightness_timer = 0
-        self._brightness_filter.x = float(min(self._last_brightness / (ui_state.show_brightness_ratio or 1.0) * 2.0, 100.0))
-
-      self._brightness_timer += 1
-      ratio = ui_state.show_brightness_ratio
-      if ratio <= 0.0:
-        # 자동모드: exposureValPercent가 높을수록(어두운 환경) 화면도 어둡게
-        # exposureValPercent를 직접 읽어서 반비례 적용
-        try:
-          exp_val = ui_state.sm['wideRoadCameraState'].exposureValPercent
-          # 어두운 환경(exp_val 높음) → 화면 밝기 낮춤 (30~80% 범위)
-          auto_ratio = float(np.interp(exp_val, [0.0, 15.0], [0.8, 0.3]))
-          clipped_brightness *= auto_ratio
-        except Exception:
-          pass  # 센서값 없으면 원래 밝기 유지
-      elif self._brightness_timer >= self._BRIGHTNESS_DELAY:
-        # 타이머 경과: 설정값 그대로 → 어두움
-        clipped_brightness *= ratio
-      else:
-        # 타이머 미만 (초기/이벤트/터치 직후): 설정값 × 2배 → 밝음
-        clipped_brightness *= min(ratio * 2.0, 1.0)
-
-    else:
-      # offroad 또는 센서 없음: 타이머 리셋
-      self._brightness_timer = 0
 
     brightness = round(self._brightness_filter.update(clipped_brightness))
     if not self._awake:
@@ -313,8 +275,6 @@ class Device:
 
     if ignition_just_turned_off or any(ev.left_down for ev in gui_app.mouse_events):
       self._reset_interactive_timeout()
-      self._brightness_timer = 0
-      self._brightness_filter.x = float(min(self._last_brightness / (ui_state.show_brightness_ratio or 1.0) * 2.0, 100.0))
 
     interaction_timeout = time.monotonic() > self._interaction_time
     if interaction_timeout and not self._prev_timed_out:
