@@ -22,8 +22,8 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *par
   main_layout->setMargin(UI_BORDER_SIZE);
   main_layout->setSpacing(0);
 
-  experimental_btn = new ExperimentalButton(this);
-  main_layout->addWidget(experimental_btn, 0, Qt::AlignTop | Qt::AlignRight);
+  //experimental_btn = new ExperimentalButton(this);
+  //main_layout->addWidget(experimental_btn, 0, Qt::AlignTop | Qt::AlignRight);
   
   record_timer = std::make_shared<QTimer>();
 	QObject::connect(record_timer.get(), &QTimer::timeout, [=]() {
@@ -197,7 +197,7 @@ void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setPen(Qt::NoPen);
 
-  model.draw(painter, rect());
+  //model.draw(painter, rect());  // ThorVG 전환 중 비활성화
   painter.beginNativePainting();
   try {
       ui_draw(s, &model, width(), height());      
