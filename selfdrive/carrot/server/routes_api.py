@@ -12,9 +12,9 @@ from .core import (
   api_live_runtime,
   api_time_sync,
   proxy_stream,
-  handle_download_tmux,
   handle_download_params_backup,
 )
+from .features.terminal import handle_download_tmux
 from .features.dashcam.routes import (
   api_dashcam_routes,
   api_dashcam_thumbnail,
