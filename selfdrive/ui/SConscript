@@ -2,6 +2,38 @@ import os
 import json
 Import('qt_env', 'arch', 'common', 'messaging', 'visionipc', 'transformations')
 
+# ThorVG source files (SW engine only, no GL/WG)
+thorvg_src = [
+  "#third_party/thorvg/src/common/tvgColor.cpp",
+  "#third_party/thorvg/src/common/tvgCompressor.cpp",
+  "#third_party/thorvg/src/common/tvgMath.cpp",
+  "#third_party/thorvg/src/common/tvgStr.cpp",
+  "#third_party/thorvg/src/renderer/tvgAccessor.cpp",
+  "#third_party/thorvg/src/renderer/tvgAnimation.cpp",
+  "#third_party/thorvg/src/renderer/tvgCanvas.cpp",
+  "#third_party/thorvg/src/renderer/tvgFill.cpp",
+  "#third_party/thorvg/src/renderer/tvgInitializer.cpp",
+  "#third_party/thorvg/src/renderer/tvgLoader.cpp",
+  "#third_party/thorvg/src/renderer/tvgPaint.cpp",
+  "#third_party/thorvg/src/renderer/tvgPicture.cpp",
+  "#third_party/thorvg/src/renderer/tvgRender.cpp",
+  "#third_party/thorvg/src/renderer/tvgSaver.cpp",
+  "#third_party/thorvg/src/renderer/tvgScene.cpp",
+  "#third_party/thorvg/src/renderer/tvgShape.cpp",
+  "#third_party/thorvg/src/renderer/tvgTaskScheduler.cpp",
+  "#third_party/thorvg/src/renderer/tvgText.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwFill.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwImage.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwMath.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwMemPool.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwPostEffect.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRaster.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRenderer.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRle.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwShape.cpp",
+  "#third_party/thorvg/src/renderer/sw_engine/tvgSwStroke.cpp",
+]
+
 base_libs = [common, messaging, visionipc, transformations,
              'm', 'OpenCL', 'ssl', 'crypto', 'pthread', 'OmxCore', 'avformat', 'avcodec', 'avutil', 'yuv'] + qt_env["LIBS"]
 
@@ -35,16 +67,25 @@ widgets = qt_env.Library("qt_widgets", widgets_src, LIBS=base_libs)
 Export('widgets')
 qt_libs = [widgets, qt_util] + base_libs
 
+# ThorVG include paths
+qt_env['CPPPATH'] += [
+  '#third_party/thorvg/inc',
+  '#third_party/thorvg/src/common',
+  '#third_party/thorvg/src/renderer',
+  '#third_party/thorvg/src/renderer/sw_engine',
+]
+
 qt_src = ["main.cc", "ui.cc", "qt/sidebar.cc", "qt/body.cc",
           "qt/window.cc", "qt/home.cc", "qt/offroad/settings.cc",
           "qt/offroad/software_settings.cc", "qt/offroad/developer_panel.cc", "qt/offroad/onboarding.cc",
           "qt/offroad/driverview.cc", "qt/offroad/experimental_mode.cc", "qt/offroad/firehose.cc",
           "qt/onroad/onroad_home.cc", "qt/onroad/annotated_camera.cc", "qt/onroad/model.cc",
           "carrot.cc",
+          "carrot_tvg.cc",
           "qt/screenrecorder/screenrecorder.cc",
           "qt/screenrecorder/omx_encoder.cc",
           "#third_party/nanovg/nanovg.c",
-          "qt/onroad/buttons.cc", "qt/onroad/alerts.cc", "qt/onroad/driver_monitoring.cc", "qt/onroad/hud.cc"]
+          "qt/onroad/buttons.cc", "qt/onroad/alerts.cc", "qt/onroad/driver_monitoring.cc", "qt/onroad/hud.cc"] + thorvg_src
 
 def is_running_on_wsl2():
   try:

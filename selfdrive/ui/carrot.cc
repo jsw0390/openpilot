@@ -3106,75 +3106,57 @@ void ui_draw(UIState *s, ModelRenderer* model_renderer, int w, int h) {
   if (s->fb_w != w || s->fb_h != h) {
     ui_resize(s, w, h);
   }
+
+  // NanoVG: 빈 프레임만 유지 (다른 코드에서 vg 참조 시 크래시 방지)
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  nvgBeginFrame(s->vg, s->fb_w, s->fb_h, 1.0f);
+  nvgEndFrame(s->vg);
+  glDisable(GL_BLEND);
+
+  // ThorVG 렌더링
+  extern void tvg_draw(UIState *s, int w, int h);
+  tvg_draw(s, w, h);
+
+#if 0 // === 기존 NanoVG 렌더링 (참조용 보존) ===
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   nvgBeginFrame(s->vg, s->fb_w, s->fb_h, 1.0f);
   nvgScissor(s->vg, 0, 0, s->fb_w, s->fb_h);
 
-  //nvgFontSize(s->vg, 170);
-  //nvgTextAlign(s->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-  //ui_draw_text(s, 500, 500, "Carrot", 100, COLOR_GREEN, BOLD);
   Params params;
   bool draw_carrot = drawCarrot.updateState(s);
   drawCarrot.drawNaviPath(s);
   static float pathDrawSeq = 0.0;
   int show_lane_info = params.getInt("ShowLaneInfo");
   if(show_lane_info >= 0) drawPath.draw(s, pathDrawSeq);
-  
-  // draw edge bands before other UI elements so it stays under texts
   drawLaneCenterIndicator(s);
-
   drawLaneLine.draw(s, show_lane_info);
   if (params.getInt("ShowPathEnd") > 0) drawPathEnd.draw(s);
-
   int path_x = drawPathEnd.getPathX();
   int path_y = drawPathEnd.getPathY();
   drawDesire.draw(s, path_x, path_y - 135);
-  
-
   drawPlot.draw(s);
-
   drawBlindSpot.draw(s);
-
-  if(draw_carrot)
-    drawCarrot.drawRadarInfo(s);
-
+  if(draw_carrot) drawCarrot.drawRadarInfo(s);
   drawCarrot.drawHud(s);
-
   drawCarrot.drawDebug(s);
   drawCarrot.drawDateTime(s);
-  //drawCarrot.drawConnInfo(s);
   drawCarrot.drawDeviceInfo(s);
   int show_tpms = params.getInt("ShowTpms");
   switch (show_tpms) {
   case 0: break;
-  case 1:
-    drawCarrot.drawTpms2(s);
-    break;
-  case 2:
-    drawCarrot.drawTpms3(s);
-    break;
-  case 3:
-    drawCarrot.drawTpms2(s);
-    drawCarrot.drawTpms3(s);
-    break;
+  case 1: drawCarrot.drawTpms2(s); break;
+  case 2: drawCarrot.drawTpms3(s); break;
+  case 3: drawCarrot.drawTpms2(s); drawCarrot.drawTpms3(s); break;
   }
-
   drawTurnInfo.draw(s);
-
   ui_draw_text_a2(s);
   ui_draw_alert(s);
-
-#if 0
-  if (drawCarrot.nav_path_vertex_count > 1) {
-      mapRenderer.render(drawCarrot.nav_path_vertex_xy, drawCarrot.nav_path_vertex_count);
-      mapRenderer.publish();
-      mapRenderer.test_draw(s->vg);
-  }
-#endif
   nvgResetScissor(s->vg);
   nvgEndFrame(s->vg);
   glDisable(GL_BLEND);
+#endif // === 기존 NanoVG 렌더링 끝 ===
 }
 
 class BorderDrawer {
