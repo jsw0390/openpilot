@@ -247,7 +247,7 @@ char a_font[128] = "";
 int a_time = -1;
 char a_string[256] = "";
 NVGcolor a_color = COLOR_WHITE;
-static void ui_draw_text_a2(const UIState* s) {
+static void __attribute__((unused)) ui_draw_text_a2(const UIState* s) {
     if (a_time <= 0) return;
     nvgTextAlign(s->vg, NVG_ALIGN_CENTER | NVG_ALIGN_BOTTOM);
     a_time -= 10;
@@ -2828,7 +2828,7 @@ NVGcolor alert_color;
 
 //MapRenderer mapRenderer;
 
-static void drawLaneCenterIndicator(const UIState *s) {
+static void __attribute__((unused)) drawLaneCenterIndicator(const UIState *s) {
   // Lane centering indicator: trapezoid bar + gradient marble
   const SubMaster &sm = *(s->sm);
   if (!sm.alive("modelV2")) return;
