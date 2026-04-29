@@ -1165,18 +1165,18 @@ function updateCarrotVisionAvailabilityUi(available, message = window.CARROT_VIS
     if (!available) {
       const title = document.createElement("div");
       title.className = "vision-start-overlay__message-title";
-      title.textContent = "주행 비전을 사용할 수 없습니다";
+      title.textContent = getUIText("vision_unavailable_title", "Drive vision is unavailable");
       const body = document.createElement("div");
       body.className = "vision-start-overlay__message-body";
       body.textContent = message;
       const hint = document.createElement("div");
       hint.className = "vision-start-overlay__message-hint";
-      hint.textContent = "설정 > 시작 > DisableDM 값을 2로 변경하세요.";
+      hint.textContent = getUIText("vision_unavailable_hint", "Change Settings > Start > DisableDM to 2.");
       messageEl.append(title, body, hint);
     }
   }
   if (available) {
-    if (!window.CARROT_VISION_ACTIVE) rtcStatusSet("주행 비전을 켜려면 화면 중앙의 시작 버튼을 클릭하세요.");
+    if (!window.CARROT_VISION_ACTIVE) rtcStatusSet(getUIText("start_vision_hint", "Tap the start button to enable drive vision."));
   } else {
     if (window.CARROT_VISION_ACTIVE) {
       window.CARROT_VISION_ACTIVE = false;

@@ -23,373 +23,23 @@ disableViewportZoomGestures();
 
 let SETTINGS = null;
 let CURRENT_GROUP = null;
-let LANG = "ko"; // "ko" | "en" | "zh"
+let LANG = "ko";
 const LANG_STORAGE_KEY = "carrot_web_lang";
 const LANG_EMOJI = {
   ko: "🇰🇷",
   en: "🇺🇸",
   zh: "🇨🇳",
+  ja: "🇯🇵",
+  fr: "🇫🇷",
 };
 
-const UI_STRINGS = {
-  ko: {
-    home: "주행",
-    setting: "설정",
-    tools: "도구",
-    logs: "로그",
-    terminal: "터미널",
-    carrot: "당근",
-    lang: "언어",
-    branch_select: "브랜치 선택",
-    branch_current: "현재",
-    server_state: "서버 상태",
-    quick_link: "퀵 링크",
-    car_select: "차량 선택",
-    makers: "제조사",
-    models: "모델",
-    groups: "그룹",
-    items: "항목",
-    back: "뒤로",
-    change: "변경",
-    git_commands: "Git Commands",
-    user_system: "User / System",
-    reboot: "Reboot",
-    backup: "Backup",
-    restore: "Restore",
-    apply: "적용",
-    confirm_car: "이 차량을 선택하시겠습니까?",
-    confirm_reboot: "지금 재부팅하시겠습니까?",
-    confirm_reboot_after_install: "설치가 완료되었습니다.\n변경 사항을 적용하려면 재부팅이 필요합니다.\n지금 재부팅하시겠습니까?",
-    reboot_later: "선택되었습니다. 적용하려면 나중에 재부팅하세요.",
-    rebooting: "재부팅 중...",
-    git_sync_confirm: "브랜치를 동기화합니다.\n로컬 브랜치가 정리됩니다. 계속하시겠습니까?",
-    git_reset_confirm: "코드 변경사항을 되돌립니다.\n수정한 내용이 사라질 수 있습니다. 계속하시겠습니까?",
-    git_reset_mode_prompt: "리셋 방식을 선택하세요\n\n• hard: 모든 변경 삭제\n• soft: 커밋만 취소\n• mixed: 스테이지만 취소",
-    git_reset_target_prompt: "리셋 대상을 입력하세요\n예: HEAD (현재), origin/master (원본)",
-    delete_videos_confirm: "모든 주행 영상을 삭제합니다.\n삭제 후 복구할 수 없습니다. 계속하시겠습니까?",
-    delete_logs_confirm: "모든 로그 파일을 삭제합니다.\n삭제 후 복구할 수 없습니다. 계속하시겠습니까?",
-    rebuild_confirm: "전체 재빌드를 실행합니다.\n빌드 파일 삭제 후 자동으로 재부팅됩니다.\n수 분이 소요될 수 있습니다. 계속하시겠습니까?",
-    select_backup_file: "먼저 백업 json 파일을 선택하세요.",
-    restore_confirm: "파일에서 설정을 복구하시겠습니까?\n\n많은 Params 값이 덮어씌워집니다.",
-    restore_done_reboot: "복구가 완료되었습니다.\n지금 재부팅하시겠습니까?",
-    checkout_confirm: "브랜치를 변경하시겠습니까?",
-    branch_changed: "브랜치가 변경되었습니다.",
-    quick_link_hint: "길게 눌러 링크 저장",
-    failed_set_car: "차량 선택 저장 실패: ",
-    reboot_failed: "재부팅 실패: ",
-    set_failed: "설정 실패: ",
-    branch_dom_missing: "브랜치 DOM 요소를 찾을 수 없습니다.",
-    fullscreen_not_supported: "이 브라우저는 전체화면을 지원하지 않습니다.",
-    record: "녹화",
-    record_on: "녹화중",
-    record_off: "녹화대기",
-    ready: "준비됨",
-    open: "열기",
-    close: "접기",
-    save: "저장",
-    copied: "복사됨",
-    not_set: "미설정",
-    connecting: "연결중...",
-    connected: "연결됨",
-    reconnecting: "재연결중...",
-    error: "오류",
-    notice: "알림",
-    confirm_title: "확인",
-    input_title: "입력",
-    ok: "확인",
-    cancel: "취소",
-    quick_link_empty: "GithubUsername 없음",
-    // Tools section titles (keep English)
-    section_settings_backup: "Settings",
-    section_sys_cmd: "System Command",
-    section_output: "Output",
-    sys_cmd_help: "Allowed: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
-    terminal_placeholder: "git status",
-    terminal_send: "전송",
-    terminal_reconnect: "재연결",
-    terminal_ctrl_c: "Ctrl+C",
-    terminal_clear: "Clear",
-    terminal_ready: "tmux 준비됨",
-    terminal_disconnected: "연결끊김",
-    terminal_unavailable: "터미널 접속 실패",
-    terminal_offline: "터미널 오프라인",
-    setting_search: "설정 검색",
-    setting_search_placeholder: "이름, 설명, 그룹 검색",
-    setting_search_empty: "검색 결과가 없습니다.",
-    setting_search_idle: "검색어를 입력하면 세부 설정을 찾을 수 있습니다.",
-    setting_search_results: "검색 결과",
-  },
-  en: {
-    home: "Drive",
-    setting: "Setting",
-    tools: "Tools",
-    logs: "Logs",
-    terminal: "Terminal",
-    carrot: "Carrot",
-    lang: "Lang",
-    branch_select: "Branch Select",
-    branch_current: "Current",
-    server_state: "Server Status",
-    quick_link: "Quick Link",
-    car_select: "Car Select",
-    makers: "Makers",
-    models: "Models",
-    groups: "Groups",
-    items: "Items",
-    back: "Back",
-    change: "Change",
-    git_commands: "Software Update",
-    user_system: "System Management",
-    reboot: "Reboot",
-    backup: "Backup Settings",
-    restore: "Restore Settings",
-    apply: "Apply",
-    confirm_car: "Select this car?",
-    confirm_reboot: "Reboot now?",
-    confirm_reboot_after_install: "Installation is complete.\nA reboot is required to apply the changes.\nReboot now?",
-    reboot_later: "Selected. Reboot later to apply.",
-    rebooting: "Rebooting...",
-    git_sync_confirm: "This will sync branches.\nLocal branches will be cleaned up. Continue?",
-    git_reset_confirm: "This will revert code changes.\nYour modifications may be lost. Continue?",
-    git_reset_mode_prompt: "Select reset mode\n\n• hard: discard all changes\n• soft: undo commit only\n• mixed: unstage only",
-    git_reset_target_prompt: "Enter reset target\ne.g. HEAD (current), origin/master (remote)",
-    delete_videos_confirm: "Delete ALL driving videos?\nThis cannot be undone. Continue?",
-    delete_logs_confirm: "Delete ALL log files?\nThis cannot be undone. Continue?",
-    rebuild_confirm: "Run full rebuild?\nBuild files will be deleted and the device will reboot.\nThis may take several minutes. Continue?",
-    select_backup_file: "Select a backup json file first.",
-    restore_confirm: "Restore settings from file?\n\nThis will overwrite many Params values.",
-    restore_done_reboot: "Restore done.\nReboot now?",
-    checkout_confirm: "Switch to this branch?",
-    branch_changed: "Branch changed.",
-    quick_link_hint: "Long press to save link",
-    failed_set_car: "Failed to set car: ",
-    reboot_failed: "Reboot failed: ",
-    set_failed: "Set failed: ",
-    branch_dom_missing: "Branch DOM elements missing.",
-    fullscreen_not_supported: "Fullscreen not supported on this browser.",
-    record: "Record",
-    record_on: "Recording",
-    record_off: "Idle",
-    ready: "Ready",
-    open: "Open",
-    close: "Close",
-    save: "Save",
-    copied: "Copied",
-    not_set: "Not set",
-    connecting: "Connecting...",
-    connected: "Connected",
-    reconnecting: "Reconnecting...",
-    error: "Error",
-    notice: "Notice",
-    confirm_title: "Confirm",
-    input_title: "Input",
-    ok: "OK",
-    cancel: "Cancel",
-    quick_link_empty: "GithubUsername not set",
-    section_settings_backup: "Settings",
-    section_sys_cmd: "System Command",
-    section_output: "Output",
-    sys_cmd_help: "Allowed: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
-    terminal_placeholder: "git status",
-    terminal_send: "Send",
-    terminal_reconnect: "Reconnect",
-    terminal_ctrl_c: "Ctrl+C",
-    terminal_clear: "Clear",
-    terminal_ready: "tmux ready",
-    terminal_disconnected: "disconnected",
-    terminal_unavailable: "terminal unavailable",
-    terminal_offline: "terminal offline",
-    setting_search: "Search Settings",
-    setting_search_placeholder: "Search name, description, group",
-    setting_search_empty: "No matching settings found.",
-    setting_search_idle: "Type to find detailed settings.",
-    setting_search_results: "results",
-  },
-  zh: {
-    home: "驾驶",
-    setting: "设置",
-    tools: "工具",
-    logs: "日志",
-    terminal: "终端",
-    carrot: "胡萝卜",
-    lang: "语言",
-    branch_select: "分支选择",
-    branch_current: "当前",
-    server_state: "服务器状态",
-    quick_link: "快速链接",
-    car_select: "车辆选择",
-    makers: "制造商",
-    models: "车型",
-    groups: "分组",
-    items: "项",
-    back: "返回",
-    change: "修改",
-    git_commands: "Git Commands",
-    user_system: "User / System",
-    reboot: "Reboot",
-    backup: "Backup",
-    restore: "Restore",
-    apply: "应用",
-    confirm_car: "选择此车辆吗？",
-    confirm_reboot: "现在重启吗？",
-    confirm_reboot_after_install: "安装已完成。\n需要重新启动设备以应用更改。\n现在重新启动吗？",
-    reboot_later: "已选择。请稍后重启以应用更改。",
-    rebooting: "正在重启...",
-    git_sync_confirm: "将同步分支。\n本地分支将被清理。继续吗？",
-    git_reset_confirm: "将恢复代码更改。\n您的修改可能会丢失。继续吗？",
-    git_reset_mode_prompt: "选择重置模式\n\n• hard: 删除所有更改\n• soft: 仅撤消提交\n• mixed: 仅取消暂存",
-    git_reset_target_prompt: "输入重置目标\n例如: HEAD (当前), origin/master (远程)",
-    delete_videos_confirm: "删除所有行车视频？\n删除后无法恢复。继续吗？",
-    delete_logs_confirm: "删除所有日志文件？\n删除后无法恢复。继续吗？",
-    rebuild_confirm: "执行全部重建？\n构建文件将被删除并自动重启。\n可能需要几分钟。继续吗？",
-    select_backup_file: "请先选择一个备份 JSON 文件。",
-    restore_confirm: "从文件还原设置吗？\n\n这将覆盖许多参数值。",
-    restore_done_reboot: "还原完成。\n现在重启吗？",
-    checkout_confirm: "切换到此分支吗？",
-    branch_changed: "分支已切换。",
-    quick_link_hint: "长按保存链接",
-    failed_set_car: "保存车辆选择失败: ",
-    reboot_failed: "重启失败: ",
-    set_failed: "设置失败: ",
-    branch_dom_missing: "找不到分支 DOM 元素。",
-    fullscreen_not_supported: "此浏览器不支持全屏。",
-    record: "录制",
-    record_on: "录制中",
-    record_off: "待机",
-    ready: "就绪",
-    open: "打开",
-    close: "收起",
-    save: "保存",
-    copied: "已复制",
-    not_set: "未设置",
-    connecting: "连接中...",
-    connected: "已连接",
-    reconnecting: "重连中...",
-    error: "错误",
-    notice: "提示",
-    confirm_title: "确认",
-    input_title: "输入",
-    ok: "确定",
-    cancel: "取消",
-    quick_link_empty: "GithubUsername 未设置",
-    section_settings_backup: "Settings",
-    section_sys_cmd: "System Command",
-    section_output: "Output",
-    sys_cmd_help: "Allowed: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
-    terminal_placeholder: "git status",
-    terminal_send: "发送",
-    terminal_reconnect: "重连",
-    terminal_ctrl_c: "Ctrl+C",
-    terminal_clear: "Clear",
-    terminal_ready: "tmux 已就绪",
-    terminal_disconnected: "连接已断开",
-    terminal_unavailable: "终端不可用",
-    terminal_offline: "终端离线",
-    setting_search: "设置搜索",
-    setting_search_placeholder: "搜索名称、描述、分组",
-    setting_search_empty: "没有匹配的设置项。",
-    setting_search_idle: "输入关键词以查找详细设置。",
-    setting_search_results: "项结果",
-  }
-};
+
 
 /* ── Action Labels (user-friendly status messages) ──────── */
-const ACTION_LABELS = {
-  ko: {
-    git_pull:         { running: "업데이트 확인 중...",       done: "업데이트 완료",      failed: "업데이트 실패" },
-    git_sync:         { running: "브랜치 동기화 중...",       done: "동기화 완료",        failed: "동기화 실패" },
-    git_reset:        { running: "되돌리는 중...",           done: "되돌리기 완료",      failed: "되돌리기 실패" },
-    git_checkout:     { running: "브랜치 전환 중...",         done: "브랜치 변경됨",      failed: "브랜치 전환 실패" },
-    git_branch_list:  { running: "브랜치 목록 조회 중...",    done: "브랜치 목록 로드됨", failed: "목록 조회 실패" },
-    reboot:           { running: "재부팅 요청 중...",         done: "재부팅 시작됨",      failed: "재부팅 실패" },
-    send_tmux_log:    { running: "로그 다운로드 중...",       done: "다운로드 완료",      failed: "다운로드 실패" },
-    server_tmux_log:  { running: "서버 로그 전송 중...",      done: "전송 완료",          failed: "전송 실패" },
-    backup_settings:  { running: "설정 백업 중...",           done: "백업 완료",          failed: "백업 실패" },
-    delete_all_videos:{ running: "영상 삭제 중...",           done: "삭제 완료",          failed: "삭제 실패" },
-    delete_all_logs:  { running: "로그 삭제 중...",           done: "삭제 완료",          failed: "삭제 실패" },
-    rebuild_all:      { running: "전체 재빌드 중...",         done: "재빌드+재부팅 시작", failed: "재빌드 실패" },
-    shell_cmd:        { running: "명령 실행 중...",           done: "실행 완료",          failed: "실행 실패" },
-    install_required: { running: "패키지 설치 중...",         done: "설치 완료",          failed: "설치 실패" },
-    git_remote_add:   { running: "리모트 추가/갱신 중...",    done: "리모트 추가/갱신 완료", failed: "리모트 추가/갱신 실패" },
-    git_log:          { running: "커밋 목록 조회 중...",      done: "조회 완료",          failed: "조회 실패" },
-    git_reset_repo_fetch: { running: "리포지토리 정보 가져오는 중...", done: "가져오기 완료", failed: "가져오기 실패" },
-    git_reset_repo_checkout: { running: "리포지토리 초기화 중...", done: "초기화 완료", failed: "초기화 실패" },
-    reset_calib:      { running: "캘리브레이션 초기화 중...", done: "초기화 완료", failed: "초기화 실패" },
-  },
-  en: {
-    git_pull:         { running: "Checking for updates...",  done: "Update complete",     failed: "Update failed" },
-    git_sync:         { running: "Syncing branches...",      done: "Sync complete",       failed: "Sync failed" },
-    git_reset:        { running: "Resetting...",             done: "Reset complete",      failed: "Reset failed" },
-    git_checkout:     { running: "Switching branch...",      done: "Branch changed",      failed: "Branch switch failed" },
-    git_branch_list:  { running: "Loading branches...",      done: "Branches loaded",     failed: "Failed to load" },
-    reboot:           { running: "Requesting reboot...",     done: "Reboot started",      failed: "Reboot failed" },
-    send_tmux_log:    { running: "Downloading log...",       done: "Download complete",   failed: "Download failed" },
-    server_tmux_log:  { running: "Sending server log...",    done: "Sent",                failed: "Send failed" },
-    backup_settings:  { running: "Backing up settings...",   done: "Backup complete",     failed: "Backup failed" },
-    delete_all_videos:{ running: "Deleting videos...",       done: "Deleted",             failed: "Delete failed" },
-    delete_all_logs:  { running: "Deleting logs...",         done: "Deleted",             failed: "Delete failed" },
-    rebuild_all:      { running: "Rebuilding all...",        done: "Rebuild+reboot started", failed: "Rebuild failed" },
-    shell_cmd:        { running: "Running command...",       done: "Complete",            failed: "Command failed" },
-    install_required: { running: "Installing packages...",   done: "Installed",           failed: "Install failed" },
-    git_remote_add:   { running: "Adding/updating remote...", done: "Remote added/updated", failed: "Add/update remote failed" },
-    git_log:          { running: "Loading commits...",       done: "Loaded",              failed: "Load failed" },
-    git_reset_repo_fetch: { running: "Fetching repo info...", done: "Fetch complete", failed: "Fetch failed" },
-    git_reset_repo_checkout: { running: "Resetting repo...", done: "Reset complete", failed: "Reset failed" },
-    reset_calib:      { running: "Resetting calibration...", done: "Reset complete", failed: "Reset failed" },
-  },
-  zh: {
-    git_pull:         { running: "检查更新中...",             done: "更新完成",            failed: "更新失败" },
-    git_sync:         { running: "同步分支中...",             done: "同步完成",            failed: "同步失败" },
-    git_reset:        { running: "重置中...",                done: "重置完成",            failed: "重置失败" },
-    git_checkout:     { running: "切换分支中...",             done: "分支已切换",          failed: "切换失败" },
-    git_branch_list:  { running: "加载分支列表...",           done: "分支列表已加载",      failed: "加载失败" },
-    reboot:           { running: "请求重启中...",             done: "重启已开始",          failed: "重启失败" },
-    send_tmux_log:    { running: "下载日志中...",             done: "下载完成",            failed: "下载失败" },
-    server_tmux_log:  { running: "发送服务器日志中...",       done: "发送完成",            failed: "发送失败" },
-    backup_settings:  { running: "备份设置中...",             done: "备份完成",            failed: "备份失败" },
-    delete_all_videos:{ running: "删除视频中...",             done: "删除完成",            failed: "删除失败" },
-    delete_all_logs:  { running: "删除日志中...",             done: "删除完成",            failed: "删除失败" },
-    rebuild_all:      { running: "全部重建中...",             done: "重建+重启已开始",     failed: "重建失败" },
-    shell_cmd:        { running: "运行命令中...",             done: "运行完成",            failed: "命令失败" },
-    install_required: { running: "安装包中...",               done: "安装完成",            failed: "安装失败" },
-    git_remote_add:   { running: "添加/更新远程中...",         done: "远程已添加/更新",      failed: "添加/更新失败" },
-    git_log:          { running: "加载提交中...",             done: "加载完成",            failed: "加载失败" },
-    git_reset_repo_fetch: { running: "获取仓库信息中...", done: "获取完成", failed: "获取失败" },
-    git_reset_repo_checkout: { running: "重置仓库中...", done: "重置完成", failed: "重置失败" },
-    reset_calib:      { running: "重置校准中...", done: "重置完成", failed: "重置失败" },
-  }
-};
+
 
 /* ── Error Code → Friendly Message ────────────────────────── */
-const ERROR_MESSAGES = {
-  ko: {
-    GIT_CMD_NOT_ALLOWED: (d) => `허용되지 않는 git 명령입니다: ${d}`,
-    CMD_NOT_ALLOWED:     (d) => `허용되지 않는 명령입니다: ${d}`,
-    INVALID_RESET_MODE:  () => "잘못된 리셋 모드입니다",
-    MISSING_BRANCH:      () => "브랜치를 선택해주세요",
-    CMD_TIMEOUT:         () => "명령 실행 시간이 초과되었습니다",
-    TMUX_CAPTURE_FAIL:   () => "로그 캡처에 실패했습니다",
-  },
-  en: {
-    GIT_CMD_NOT_ALLOWED: (d) => `This git command is not allowed: ${d}`,
-    CMD_NOT_ALLOWED:     (d) => `This command is not allowed: ${d}`,
-    INVALID_RESET_MODE:  () => "Invalid reset mode",
-    MISSING_BRANCH:      () => "Please select a branch",
-    CMD_TIMEOUT:         () => "Command timed out",
-    TMUX_CAPTURE_FAIL:   () => "Failed to capture log",
-  },
-  zh: {
-    GIT_CMD_NOT_ALLOWED: (d) => `不允许的git命令: ${d}`,
-    CMD_NOT_ALLOWED:     (d) => `不允许的命令: ${d}`,
-    INVALID_RESET_MODE:  () => "无效的重置模式",
-    MISSING_BRANCH:      () => "请选择分支",
-    CMD_TIMEOUT:         () => "命令执行超时",
-    TMUX_CAPTURE_FAIL:   () => "日志捕获失败",
-  }
-};
+
 
 function friendlyError(json) {
   if (!json) return null;
@@ -418,11 +68,7 @@ function getActionLabel(action) {
   return labels || { running: action + "...", done: action, failed: action };
 }
 
-const DRIVE_MODES = {
-  ko: { normal: "일반", eco: "연비", safe: "안전", sport: "고속" },
-  en: { normal: "Normal", eco: "Eco", safe: "Safe", sport: "Sport" },
-  zh: { normal: "标准", eco: "经济", safe: "安全", sport: "运动" }
-};
+
 
 let UNIT_CYCLE = [1, 2, 5, 10, 50, 100];
 const UNIT_INDEX = {}; // per name
@@ -486,8 +132,12 @@ const PAGE_ELEMENTS = {
 
 function normalizeLangCode(raw) {
   const value = String(raw || "").trim().toLowerCase();
+  const packs = window.CarrotTranslations?.packs || {};
+  if (packs[value]) return value;
   if (value.startsWith("ko")) return "ko";
   if (value.startsWith("zh")) return "zh";
+  if (value.startsWith("ja")) return "ja";
+  if (value.startsWith("fr")) return "fr";
   if (value.startsWith("en")) return "en";
   return "";
 }
@@ -509,6 +159,12 @@ function detectDefaultLang() {
 }
 
 LANG = detectDefaultLang();
+const TRANSLATION_REGISTRY = window.CarrotTranslations || { packs: {}, order: ["ko", "en", "zh"] };
+const UI_STRINGS = TRANSLATION_REGISTRY.strings || {};
+const ACTION_LABELS = TRANSLATION_REGISTRY.actionLabels || {};
+const ERROR_MESSAGES = TRANSLATION_REGISTRY.errorMessages || {};
+const DRIVE_MODES = TRANSLATION_REGISTRY.driveModes || {};
+
 const PAGE_TRANSITION_CLASSES = [
   "page-transitioning",
   "page-active",
@@ -1007,10 +663,10 @@ function showCarScreen(which, pushHistory = false) {
   }
 }
 
-function toggleLang() {
-  if (LANG === "ko") LANG = "en";
-  else if (LANG === "en") LANG = "zh";
-  else LANG = "ko";
+function setWebLanguage(lang) {
+  const normalized = normalizeLangCode(lang);
+  if (!normalized || !UI_STRINGS[normalized]) return false;
+  LANG = normalized;
   try {
     localStorage.setItem(LANG_STORAGE_KEY, LANG);
   } catch {}
@@ -1033,6 +689,15 @@ function toggleLang() {
       renderItems(CURRENT_GROUP, { scrollMode: "restore", scrollTop: currentTop });
     }
   }
+  window.dispatchEvent(new CustomEvent("carrot:languagechange", { detail: { lang: LANG } }));
+  return true;
+}
+
+function toggleLang() {
+  const order = (TRANSLATION_REGISTRY.order || ["ko", "en", "zh"]).filter((lang) => UI_STRINGS[lang]);
+  const currentIndex = Math.max(0, order.indexOf(LANG));
+  const next = order[(currentIndex + 1) % order.length] || "ko";
+  setWebLanguage(next);
 }
 
 function renderUIText() {
@@ -1058,6 +723,7 @@ function renderUIText() {
 
   // Setting
   setText("settingTitleText", s.setting);
+  setText("settingCarEyebrow", s.car_select);
   setText("btnBackGroups", s.back);
   setText("groupsTitle", s.groups);
   setText("itemsTitle", s.items);
@@ -1068,9 +734,24 @@ function renderUIText() {
   setText("userSystemTitle", s.user_system);
   setText("toolsQuickLinkTitle", "Link");
   setText("userSettingsTitle", s.section_settings_backup);
+  setText("btnDeviceInfo", s.device_info || "Device Info");
+  setText("btnGitRemote", s.change_repository || "change repository");
+  setText("btnGitBranch", s.change_branch || "change branch");
+  setText("btnGitAddRemote", s.add_remote || "add remote");
+  setText("btnGitResetRepo", s.reset_repo || "reset repo");
+  setText("btnDeviceLang", s.device_lang || "Device Lang");
+  setText("btnResetCalib", s.reset_calib || "Reset Calib");
+  setText("btnSendTmuxLog", s.capture_tmux || "capture tmux");
+  setText("btnSendTmuxServerLog", s.send_tmux || "send tmux");
+  setText("btnInstallRequired", s.install_required || "install flask");
+  setText("btnDeleteVideos", s.delete_all_videos || "delete all videos");
+  setText("btnDeleteLogs", s.delete_all_logs || "delete all logs");
+  setText("btnRebuildAll", s.rebuild_all || "Rebuild All");
   setText("btnReboot", s.reboot);
   setText("btnBackupSettings", s.backup);
   setText("btnRestoreSettings", s.restore);
+  setText("btnCopySettings", s.copy || "Copy");
+  setText("btnViewSettings", s.view || "View");
   setText("sysCmdTitle", s.section_sys_cmd);
   setText("sysCmdHelp", s.sys_cmd_help);
   setText("outputTitle", s.section_output);
@@ -1080,6 +761,9 @@ function renderUIText() {
   setText("btnTerminalClear", s.terminal_clear);
   setText("btnTerminalReconnect", s.terminal_reconnect);
   setText("btnTerminalSend", s.terminal_send);
+  setText("logsDashcamTitle", s.logs_dashcam || "Dashcam");
+  setText("logsScreenTitle", s.logs_screenrecord || "Screen Record");
+  setText("btnStartVision", `▶ ${s.start_vision || "Start Drive Vision"}`);
   const terminalInput = document.getElementById("terminalInput");
   if (terminalInput) terminalInput.placeholder = "";
   setText("settingSearchTitle", s.setting_search);
@@ -1128,6 +812,9 @@ function updateLangLabel() {
   const main = langLabel?.querySelector(".lang-label__main");
   const sub = langLabel?.querySelector(".lang-label__sub");
   const emoji = LANG_EMOJI[LANG] || "🌐";
+  const pack = TRANSLATION_REGISTRY.getPack?.(LANG) || {};
+  const languageName = pack.name || LANG.toUpperCase();
+  const nativeName = pack.nativeName || languageName;
   if (langLabel) {
     if (main && sub) {
       main.textContent = emoji;
@@ -1139,24 +826,29 @@ function updateLangLabel() {
   }
 
   if (btnLang) {
-    const text = `${getUIText("lang", "lang")} (${LANG})`;
+    const text = `${getUIText("language", getUIText("lang", "Language"))} (${languageName})`;
     btnLang.setAttribute("aria-label", text);
     btnLang.title = text;
   }
   if (btnSettingLang) {
-    const label = LANG === "en"
-      ? "Language · English"
-      : LANG === "zh"
-        ? "语言 · 中文"
-        : "언어 · 한국어";
+    const label = `${getUIText("language", getUIText("lang", "Language"))} · ${nativeName}`;
     btnSettingLang.textContent = label;
     btnSettingLang.title = label;
   }
   document.documentElement.lang = LANG;
 }
 
-function getUIText(key, fallback = "") {
-  return UI_STRINGS[LANG]?.[key] || fallback;
+function formatUIText(text, vars = {}) {
+  let out = String(text ?? "");
+  Object.entries(vars || {}).forEach(([key, value]) => {
+    out = out.replaceAll(`{${key}}`, String(value));
+  });
+  return out;
+}
+
+function getUIText(key, fallback = "", vars = null) {
+  const value = UI_STRINGS[LANG]?.[key] ?? UI_STRINGS.en?.[key] ?? UI_STRINGS.ko?.[key] ?? fallback;
+  return vars ? formatUIText(value, vars) : value;
 }
 
 function syncModalBodyLock() {

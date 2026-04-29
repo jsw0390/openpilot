@@ -2210,10 +2210,49 @@ function getToolCommandPreview(action, payload = {}) {
 let toolsMetaStatusText = "";
 let toolsMetaInfoText = "";
 let toolsMetaInfoDialogText = "";
+let toolsLanguageMenuOpen = false;
+
+function getAvailableWebLanguages() {
+  const registry = window.CarrotTranslations || {};
+  const order = Array.isArray(registry.order) ? registry.order : ["ko", "en", "zh"];
+  return order
+    .map((lang) => {
+      const pack = registry.getPack?.(lang) || registry.packs?.[lang] || {};
+      const strings = UI_STRINGS?.[lang];
+      if (!strings) return null;
+      return {
+        lang,
+        name: pack.name || lang.toUpperCase(),
+        nativeName: pack.nativeName || pack.name || lang.toUpperCase(),
+        shortName: pack.shortName || lang.toUpperCase(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function closeToolsLanguageMenu() {
+  if (!toolsLanguageMenuOpen) return;
+  toolsLanguageMenuOpen = false;
+  renderToolsMeta();
+}
+
+function bindToolsLanguageMenuDismiss() {
+  if (document.body.dataset.toolsLangDismissBound === "1") return;
+  document.body.dataset.toolsLangDismissBound = "1";
+  document.addEventListener("click", (event) => {
+    if (!toolsLanguageMenuOpen) return;
+    if (event.target instanceof Element && event.target.closest(".tools-lang-menu")) return;
+    closeToolsLanguageMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeToolsLanguageMenu();
+  });
+}
 
 function renderToolsMeta() {
   const meta = document.getElementById("toolsMeta");
   if (!meta) return;
+  bindToolsLanguageMenuDismiss();
 
   meta.textContent = "";
 
@@ -2225,23 +2264,62 @@ function renderToolsMeta() {
   const actionsEl = document.createElement("div");
   actionsEl.className = "tools-meta__actions";
 
+  const languages = getAvailableWebLanguages();
+  const current = languages.find((item) => item.lang === LANG) || languages[0];
+  const langWrap = document.createElement("div");
+  langWrap.className = "tools-lang-menu";
+
   const langBtn = document.createElement("button");
   langBtn.type = "button";
-  langBtn.className = "tools-meta__langBtn";
-  langBtn.textContent = (typeof LANG_EMOJI === "object" && LANG_EMOJI[LANG]) ? LANG_EMOJI[LANG] : "🌐";
-  const langTitle = LANG === "en"
-    ? "Language"
-    : LANG === "zh"
-      ? "语言"
-      : "언어";
-  langBtn.setAttribute("aria-label", langTitle);
-  langBtn.title = langTitle;
-  langBtn.addEventListener("click", () => {
-    if (typeof toggleLang === "function") toggleLang();
+  langBtn.className = "tools-lang-menu__button";
+  langBtn.setAttribute("aria-haspopup", "menu");
+  langBtn.setAttribute("aria-expanded", toolsLanguageMenuOpen ? "true" : "false");
+  langBtn.innerHTML = `
+    <span class="tools-lang-menu__globe" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.93 9h-3.01a15.7 15.7 0 0 0-1.08-5.05A8.04 8.04 0 0 1 18.93 11M12 4.04c.62.9 1.55 2.86 1.9 6.96h-3.8c.35-4.1 1.28-6.06 1.9-6.96M4.07 13h3.01c.16 1.97.55 3.73 1.08 5.05A8.04 8.04 0 0 1 4.07 13m3.01-2H4.07a8.04 8.04 0 0 1 4.09-5.05A15.7 15.7 0 0 0 7.08 11M12 19.96c-.62-.9-1.55-2.86-1.9-6.96h3.8c-.35 4.1-1.28 6.06-1.9 6.96m2.84-1.91c.53-1.32.92-3.08 1.08-5.05h3.01a8.04 8.04 0 0 1-4.09 5.05"/>
+      </svg>
+    </span>
+    <span class="tools-lang-menu__label">${escapeHtml(getUIText("language", getUIText("lang", "Language")))}</span>
+    <span class="tools-lang-menu__chevron" aria-hidden="true">⌄</span>
+  `;
+  langBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toolsLanguageMenuOpen = !toolsLanguageMenuOpen;
+    renderToolsMeta();
   });
-  actionsEl.appendChild(langBtn);
+  langWrap.appendChild(langBtn);
 
-
+  if (toolsLanguageMenuOpen) {
+    const panel = document.createElement("div");
+    panel.className = "tools-lang-menu__panel";
+    panel.setAttribute("role", "menu");
+    const currentLabel = current?.name || LANG.toUpperCase();
+    panel.innerHTML = `
+      <div class="tools-lang-menu__current">${escapeHtml(getUIText("current_language", "Current language"))}: ${escapeHtml(currentLabel)}</div>
+      <div class="tools-lang-menu__divider" aria-hidden="true"></div>
+    `;
+    languages.forEach((item) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "tools-lang-menu__item";
+      option.setAttribute("role", "menuitemradio");
+      option.setAttribute("aria-checked", item.lang === LANG ? "true" : "false");
+      option.innerHTML = `
+        <span>${escapeHtml(item.name)}</span>
+        <span class="tools-lang-menu__openMark" aria-hidden="true">↗</span>
+      `;
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (typeof setWebLanguage === "function") setWebLanguage(item.lang);
+        toolsLanguageMenuOpen = false;
+        renderToolsMeta();
+      });
+      panel.appendChild(option);
+    });
+    langWrap.appendChild(panel);
+  }
+  actionsEl.appendChild(langWrap);
 
   meta.appendChild(actionsEl);
 }
@@ -2388,8 +2466,9 @@ function rerenderPageLangUi() {
     ["terminal_offline", "terminal offline"],
   ];
 
+  const langOrder = window.CarrotTranslations?.order || ["ko", "en", "zh"];
   for (const [key, fallback] of terminalStates) {
-    const variants = ["ko", "en", "zh"]
+    const variants = langOrder
       .map((langKey) => UI_STRINGS[langKey]?.[key] || fallback)
       .filter(Boolean);
     if (variants.includes(current)) {
@@ -2470,7 +2549,6 @@ async function syncDeviceLanguageOnce() {
 
 function runUiWarmup() {
   return Promise.allSettled([
-    syncDeviceLanguageOnce(),
     loadCurrentCar({ resetRetry: false, ttlMs: PAGE_DATA_TTL_MS }),
     loadRecordState({ ttlMs: PAGE_DATA_TTL_MS }),
     refreshToolsMetaInfo({ silent: true, ttlMs: PAGE_DATA_TTL_MS }),
@@ -3802,7 +3880,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
           <img class="logs-lazy-img" loading="lazy" decoding="async" fetchpriority="low" data-src="${dashcamApiPath("preview", representative)}" data-fallback="${dashcamApiPath("thumbnail", representative)}" onerror="this.onerror=null;if(this.dataset.fallback)this.src=this.dataset.fallback;" alt="">
           <div class="dashcam-route-preview__shade"></div>
           <div class="dashcam-route-preview__chips">
-            <span class="dashcam-chip">세그먼트 ${segments.length}개</span>
+            <span class="dashcam-chip">${escapeHtml(getUIText("segment_count", "{count} segments", { count: segments.length }))}</span>
             <span class="dashcam-chip">${latest}</span>
           </div>
           <div class="dashcam-play-mark" aria-hidden="true">
@@ -3822,7 +3900,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
       return `<div class="dashcam-segment-tile dashcam-segment-tile--compact ui-stagger-item" style="--i:${segmentIndex}" data-action="play" data-route="${routeAttr}" data-segment="${segAttr}">
         <div class="dashcam-segment-thumb dashcam-segment-thumb--compact">
           <img class="logs-lazy-img" loading="lazy" decoding="async" fetchpriority="low" data-src="${dashcamApiPath("thumbnail", segment)}" alt="">
-          <label class="dashcam-segment-check dashcam-segment-check--compact" title="선택" onclick="event.stopPropagation()">
+          <label class="dashcam-segment-check dashcam-segment-check--compact" title="${escapeHtml(getUIText("select_all", "Select"))}" onclick="event.stopPropagation()">
             <input type="checkbox" data-action="select-segment" data-segment="${segAttr}"${checked}>
           </label>
         </div>
@@ -3830,7 +3908,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
           <div class="dashcam-segment-badge">SEG ${dashcamSegmentIndex(segment)}</div>
           <div class="dashcam-segment-name">${segAttr}</div>
         </div>
-        <button class="dashcam-menu-btn" type="button" data-action="segment-menu" data-route="${routeAttr}" data-segment="${segAttr}" aria-label="세그먼트 메뉴" title="세그먼트 메뉴">
+        <button class="dashcam-menu-btn" type="button" data-action="segment-menu" data-route="${routeAttr}" data-segment="${segAttr}" aria-label="${escapeHtml(getUIText("segment_menu", "Segment menu"))}" title="${escapeHtml(getUIText("segment_menu", "Segment menu"))}">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4m0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4m0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4"/></svg>
         </button>
       </div>`;
@@ -3838,7 +3916,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
     return `<div class="dashcam-segment-tile ui-stagger-item" style="--i:${segmentIndex}" data-action="play" data-route="${routeAttr}" data-segment="${segAttr}">
       <div class="dashcam-segment-thumb">
         <img class="logs-lazy-img" loading="lazy" decoding="async" fetchpriority="low" data-src="${dashcamApiPath("thumbnail", segment)}" alt="">
-        <label class="dashcam-segment-check" title="선택" onclick="event.stopPropagation()">
+        <label class="dashcam-segment-check" title="${escapeHtml(getUIText("select_all", "Select"))}" onclick="event.stopPropagation()">
           <input type="checkbox" data-action="select-segment" data-segment="${segAttr}"${checked}>
         </label>
       </div>
@@ -3846,7 +3924,7 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
         <div class="dashcam-segment-badge">SEG ${dashcamSegmentIndex(segment)}</div>
         <div class="dashcam-segment-name">${segAttr}</div>
       </div>
-      <button class="dashcam-menu-btn" type="button" data-action="segment-menu" data-route="${routeAttr}" data-segment="${segAttr}" aria-label="세그먼트 메뉴" title="세그먼트 메뉴">
+      <button class="dashcam-menu-btn" type="button" data-action="segment-menu" data-route="${routeAttr}" data-segment="${segAttr}" aria-label="${escapeHtml(getUIText("segment_menu", "Segment menu"))}" title="${escapeHtml(getUIText("segment_menu", "Segment menu"))}">
         <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4m0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4m0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4"/></svg>
       </button>
     </div>`;
@@ -3860,15 +3938,15 @@ function dashcamRouteCardHtml(entry, index = 0, options = {}) {
           <div class="dashcam-route-title">${title}</div>
           <div class="dashcam-route-subtitle">${dateLabel}</div>
         </div>
-        <button class="dashcam-expand-btn" type="button" data-action="toggle-route" data-route="${routeAttr}" aria-expanded="${expanded ? "true" : "false"}" title="${expanded ? "접기" : "세그먼트 보기"}">
+        <button class="dashcam-expand-btn" type="button" data-action="toggle-route" data-route="${routeAttr}" aria-expanded="${expanded ? "true" : "false"}" title="${escapeHtml(expanded ? getUIText("collapse", "Collapse") : getUIText("show_segments", "Show segments"))}">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="${expanded ? "M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z" : "M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"}"/></svg>
         </button>
       </div>
       <div class="dashcam-segments ${expanded ? "" : "is-collapsed"}">
         <div class="dashcam-selection-row">
-          <span class="dashcam-selection-count">선택 ${selected.length}개</span>
-          <button class="smallBtn" type="button" data-action="select-route" data-route="${routeAttr}" data-selected="${allSelected ? "1" : "0"}">${allSelected ? "전체 해제" : "전체 선택"}</button>
-          <button class="smallBtn btn--filled" type="button" data-action="upload-selected" data-route="${routeAttr}" ${selected.length ? "" : "disabled"}>선택 전송</button>
+          <span class="dashcam-selection-count">${escapeHtml(getUIText("selected_count", "{count} selected", { count: selected.length }))}</span>
+          <button class="smallBtn" type="button" data-action="select-route" data-route="${routeAttr}" data-selected="${allSelected ? "1" : "0"}">${escapeHtml(allSelected ? getUIText("deselect_all", "Deselect all") : getUIText("select_all", "Select all"))}</button>
+          <button class="smallBtn btn--filled" type="button" data-action="upload-selected" data-route="${routeAttr}" ${selected.length ? "" : "disabled"}>${escapeHtml(getUIText("upload_selected", "Upload selected"))}</button>
         </div>
         <div class="dashcam-segment-list">${segmentList}</div>
       </div>
@@ -3888,7 +3966,7 @@ function renderDashcamRoutes(options = {}) {
   }
   if (!routes.length) {
     host.innerHTML = "";
-    setDashcamStatus("주행 기록이 없습니다.");
+    setDashcamStatus(getUIText("dashcam_empty", "No driving records."));
     return;
   }
   setDashcamStatus("");
@@ -3933,12 +4011,12 @@ function updateDashcamRouteSelectionUi(route) {
   const allSelected = segments.length > 0 && selected.length === segments.length;
 
   const countEl = card.querySelector(".dashcam-selection-count");
-  if (countEl) countEl.textContent = `선택 ${selected.length}개`;
+  if (countEl) countEl.textContent = getUIText("selected_count", "{count} selected", { count: selected.length });
 
   const selectBtn = card.querySelector('[data-action="select-route"]');
   if (selectBtn) {
     selectBtn.dataset.selected = allSelected ? "1" : "0";
-    selectBtn.textContent = allSelected ? "전체 해제" : "전체 선택";
+    selectBtn.textContent = allSelected ? getUIText("deselect_all", "Deselect all") : getUIText("select_all", "Select all");
   }
 
   const uploadBtn = card.querySelector('[data-action="upload-selected"]');
@@ -4010,17 +4088,17 @@ function openLogsVideoPlayer(title, src, options = {}) {
   overlay.innerHTML = `<div class="dashcam-player-dialog" role="dialog" aria-modal="true">
     <div class="dashcam-player-frame">
       <video class="dashcam-player-video" autoplay controls playsinline src="${src}"></video>
-      <div class="dashcam-player-controls" aria-label="영상 제어">
-        <button class="dashcam-player-control" type="button" data-skip="-5" aria-label="5초 뒤로" title="5초 뒤로">
+      <div class="dashcam-player-controls" aria-label="${escapeHtml(getUIText("video_controls", "Video controls"))}">
+        <button class="dashcam-player-control" type="button" data-skip="-5" aria-label="${escapeHtml(getUIText("rewind_5", "Back 5 seconds"))}" title="${escapeHtml(getUIText("rewind_5", "Back 5 seconds"))}">
           <span aria-hidden="true">-5</span>
         </button>
-        <button class="dashcam-player-control" type="button" data-skip="5" aria-label="5초 앞으로" title="5초 앞으로">
+        <button class="dashcam-player-control" type="button" data-skip="5" aria-label="${escapeHtml(getUIText("forward_5", "Forward 5 seconds"))}" title="${escapeHtml(getUIText("forward_5", "Forward 5 seconds"))}">
           <span aria-hidden="true">+5</span>
         </button>
       </div>
       <div class="dashcam-player-top">
         <div class="dashcam-player-title">${escapeHtml(title || "Video")}</div>
-        <button class="dashcam-player-close" type="button" aria-label="닫기" title="닫기">
+        <button class="dashcam-player-close" type="button" aria-label="${escapeHtml(getUIText("close", "Close"))}" title="${escapeHtml(getUIText("close", "Close"))}">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29l6.3 6.3 6.29-6.3z"/></svg>
         </button>
       </div>
@@ -4138,7 +4216,7 @@ function openDashcamPlayer(route, segment) {
 
 function openScreenrecordPlayer(id, name) {
   if (!id) return;
-  openLogsVideoPlayer(name || "화면녹화", screenrecordApiPath("video", id), { kind: "screenrecord" });
+  openLogsVideoPlayer(name || getUIText("logs_screenrecord", "Screen Record"), screenrecordApiPath("video", id), { kind: "screenrecord" });
 }
 
 function dashcamUploadResultHtml(result) {
@@ -4166,17 +4244,17 @@ async function showDashcamUploadResult(result) {
   const text = String(result?.shareText || result?.message || "").trim();
   const selected = await openAppDialog({
     mode: "choice",
-    title: "로그 전송 결과",
+    title: getUIText("log_upload_result", "Upload Result"),
     html: true,
     messageHtml: `<div class="dashcam-share-dialog">${dashcamUploadResultHtml(result)}</div>`,
-    cancelLabel: "닫기",
+    cancelLabel: getUIText("close", "Close"),
     choices: [
-      { label: "복사", value: "copy", className: "btn--filled" },
+      { label: getUIText("copy", "Copy"), value: "copy", className: "btn--filled" },
     ],
   });
   if (selected === "copy") {
     copyToClipboard(text);
-    showAppToast("복사되었습니다.");
+    showAppToast(getUIText("copied", "Copied"));
   }
 }
 
@@ -4184,7 +4262,7 @@ function openDashcamUploadProgress(total) {
   const overlay = document.createElement("div");
   overlay.className = "dashcam-upload-progress";
   overlay.innerHTML = `<div class="dashcam-upload-progress__sheet" role="dialog" aria-modal="true">
-    <div class="dashcam-upload-progress__title">로그 전송 중</div>
+    <div class="dashcam-upload-progress__title">${escapeHtml(getUIText("log_uploading", "Uploading logs"))}</div>
     <div class="dashcam-upload-progress__message">0/${Number(total || 0)}</div>
     <div class="dashcam-upload-progress__bar" aria-hidden="true"><span></span></div>
   </div>`;
@@ -4205,10 +4283,10 @@ function openDashcamUploadProgress(total) {
 async function uploadDashcamSegments(segments) {
   const targets = Array.from(new Set(segments || [])).filter(Boolean);
   if (!targets.length) {
-    showAppToast("선택된 세그먼트가 없습니다.", { tone: "error" });
+    showAppToast(getUIText("no_selected_segments", "No segments selected."), { tone: "error" });
     return;
   }
-  const ok = await appConfirm(`당근 서버에 ${targets.length}개 로그를 전송할까요?`, { title: "로그 전송" });
+  const ok = await appConfirm(getUIText("log_upload_confirm", `Upload ${targets.length} logs to the Carrot server?`, { count: targets.length }), { title: getUIText("log_upload", "Upload Logs") });
   if (!ok) return;
   const progress = openDashcamUploadProgress(targets.length);
   try {
@@ -4219,7 +4297,7 @@ async function uploadDashcamSegments(segments) {
     await showDashcamUploadResult(result);
   } catch (e) {
     progress.close();
-    showAppToast(`로그 전송 실패: ${e.message || e}`, { tone: "error", duration: 4200 });
+    showAppToast(`${getUIText("log_upload", "Upload Logs")} ${getUIText("error", "Error")}: ${e.message || e}`, { tone: "error", duration: 4200 });
   }
 }
 
@@ -4229,11 +4307,11 @@ async function showDashcamSegmentMenu(route, segment) {
     title: `SEG ${dashcamSegmentIndex(segment)}`,
     message: segment,
     choices: [
-      { label: "재생", value: "play" },
-      { label: "로그 전송", value: "upload" },
-      { label: "qcamera 다운로드", value: "download_qcamera" },
-      { label: "rlog 다운로드", value: "download_rlog" },
-      { label: "qlog 다운로드", value: "download_qlog" },
+      { label: getUIText("play", "Play"), value: "play" },
+      { label: getUIText("log_upload", "Upload Logs"), value: "upload" },
+      { label: `qcamera ${getUIText("download", "Download")}`, value: "download_qcamera" },
+      { label: `rlog ${getUIText("download", "Download")}`, value: "download_rlog" },
+      { label: `qlog ${getUIText("download", "Download")}`, value: "download_qlog" },
     ],
   });
   if (selected === "play") openDashcamPlayer(route, segment);
