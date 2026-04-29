@@ -155,10 +155,9 @@ class ModelRenderer(Widget):
         
       self._transform_dirty = False
 
-    # Draw elements (hide when disengaged)
-    self._draw_lane_lines()
-    if ui_state.status != UIStatus.DISENGAGED or ui_state.lat_active:
-      #self._draw_lane_lines()
+    # Draw elements - show lane lines and path when steering or cruise is active
+    if ui_state.lat_active or ui_state.status != UIStatus.DISENGAGED:
+      self._draw_lane_lines()
       self._draw_path(sm)
 
     if render_lead_indicator and radar_state:
