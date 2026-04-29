@@ -988,8 +988,7 @@ body[data-page="tools"] .swipe-container,
   background: color-mix(in srgb, var(--md-on-surface) 6%, transparent);
 }
 
-.tools-lang-menu__globe,
-.tools-lang-menu__chevron {
+.tools-lang-menu__globe {
   color: var(--md-on-surface-var);
   font-size: 15px;
   line-height: 1;
@@ -2432,6 +2431,9 @@ body[data-page="tools"] .swipe-container,
     min-height: 30px;
     padding-inline: 8px;
     font-size: 12px;
+    white-space: normal;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
   }
 
   .dashcam-selection-row .btn--filled {

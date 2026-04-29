@@ -2283,7 +2283,6 @@ function renderToolsMeta() {
       </svg>
     </span>
     <span class="tools-lang-menu__label">${escapeHtml(getUIText("language", getUIText("lang", "Language")))}</span>
-    <span class="tools-lang-menu__chevron" aria-hidden="true">⌄</span>
   `;
   langBtn.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -3473,23 +3472,36 @@ function initToolsPage() {
     return names;
   }
 
+  async function buildSettingsJsonText() {
+    if (!SETTINGS || !SETTINGS.items_by_group) {
+      const r = await fetch("/api/settings");
+      const j = await r.json();
+      if (j.ok) SETTINGS = j;
+    }
+    if (!SETTINGS || !SETTINGS.items_by_group) {
+      return { text: "", count: 0 };
+    }
+    const allNames = getAllSettingNames(SETTINGS);
+    const values = await bulkGet(allNames);
+    const orderedValues = {};
+    allNames.forEach((name) => {
+      orderedValues[name] = values[name] ?? "";
+    });
+    return {
+      text: JSON.stringify(orderedValues, null, 2),
+      count: allNames.length,
+    };
+  }
+
   bindOnce("btnCopySettings", async () => {
     try {
-      if (!SETTINGS || !SETTINGS.items_by_group) {
-        const r = await fetch("/api/settings");
-        const j = await r.json();
-        if (j.ok) SETTINGS = j;
-      }
-      if (!SETTINGS || !SETTINGS.items_by_group) {
+      const { text, count } = await buildSettingsJsonText();
+      if (!text) {
         toolsLogNotice(getUIText("settings_not_loaded", "Settings not loaded"), { label: "copy settings" });
         return;
       }
-      const allNames = getAllSettingNames(SETTINGS);
-      const values = await bulkGet(allNames);
-      const lines = allNames.map(n => `${n}=${values[n] ?? ""}`);
-      const text = lines.join("\n");
       copyToClipboard(text);
-      toolsLogNotice(getUIText("copy_settings_done", "{count} params copied", { count: allNames.length }), { label: "copy settings" });
+      toolsLogNotice(getUIText("copy_settings_done", "{count} params copied", { count }), { label: "copy settings" });
     } catch (e) {
       showError("copy settings", e);
     }
@@ -3497,21 +3509,13 @@ function initToolsPage() {
 
   bindOnce("btnViewSettings", async () => {
     try {
-      if (!SETTINGS || !SETTINGS.items_by_group) {
-        const r = await fetch("/api/settings");
-        const j = await r.json();
-        if (j.ok) SETTINGS = j;
-      }
-      if (!SETTINGS || !SETTINGS.items_by_group) {
+      const { text, count } = await buildSettingsJsonText();
+      if (!text) {
         toolsLogNotice(getUIText("settings_not_loaded", "Settings not loaded"), { label: "view settings" });
         return;
       }
-      const allNames = getAllSettingNames(SETTINGS);
-      const values = await bulkGet(allNames);
-      const lines = allNames.map(n => `${n} = ${values[n] ?? getUIText("empty_value", "(empty)")}`);
-      const text = lines.join("\n");
       appAlert(text, {
-        title: getUIText("settings_title", "Settings ({count} params)", { count: allNames.length }),
+        title: getUIText("settings_title", "Settings ({count} params)", { count }),
         copyText: text,
       });
     } catch (e) {
@@ -4255,19 +4259,13 @@ function openScreenrecordPlayer(id, name) {
 function dashcamUploadResultHtml(result) {
   const text = String(result?.shareText || result?.message || "");
   const discord = result?.discord || {};
-  let discordLabel = `Discord: ${getUIText("not_set", "Not set")}`;
-  let discordClass = "is-muted";
-  if (discord.configured && discord.ok) {
-    discordLabel = `Discord: ${getUIText("sent", "Sent")}`;
-    discordClass = "is-ok";
-  } else if (discord.configured) {
-    discordLabel = `Discord: ${getUIText("failed", "Failed")}${discord.status ? ` (${discord.status})` : ""}`;
-    discordClass = "is-error";
-  }
+  const discordHtml = discord.configured && !discord.ok
+    ? `<span class="is-error">${escapeHtml(`Discord: ${getUIText("failed", "Failed")}${discord.status ? ` (${discord.status})` : ""}`)}</span>`
+    : "";
   return `<div class="dashcam-share-card">
     <div class="dashcam-share-card__summary">
       <span>${escapeHtml(getUIText("upload_count", "Upload {uploaded}/{total}", { uploaded: Number(result?.uploaded || 0), total: Number(result?.total || 0) }))}</span>
-      <span class="${discordClass}">${escapeHtml(discordLabel)}</span>
+      ${discordHtml}
     </div>
     <pre>${escapeHtml(text)}</pre>
   </div>`;
