@@ -166,6 +166,7 @@ qt_env.Depends(assets, Glob('#selfdrive/assets/*', exclude=[assets, assets_src, 
 asset_obj = qt_env.Object("assets", assets)
 
 # build main UI
+qt_env.Append(LINKFLAGS=['-Wl,-rpath,$ORIGIN'])
 qt_env.Program("ui", qt_src + [asset_obj], LIBS=qt_libs + [thorvg_lib])
 if GetOption('extras'):
   qt_src.remove("main.cc")  # replaced by test_runner
