@@ -4,8 +4,8 @@ from typing import Any
 
 from aiohttp import web
 
-from ..live_compat.broker import RealtimeBroker
-from ..live_compat.normalize import to_transport_safe
+from ..live_runtime.broker import RealtimeBroker
+from ..live_runtime.normalize import to_transport_safe
 from ..services.time_sync import TIME_SYNC_DEBUG_DEFAULT, sync_system_time_from_browser
 
 
