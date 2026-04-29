@@ -116,19 +116,25 @@ void tvg_init(int w, int h) {
     tvg_w = w;
     tvg_h = h;
 
-    // GlCanvas 시도
-    auto gl = tvg::GlCanvas::gen();
-    if (gl) {
-        res = gl->target(nullptr, nullptr, nullptr, 0, w, h, tvg::ColorSpace::ABGR8888S);
-        if (res == tvg::Result::Success) {
-            tvg_canvas = gl;
-            tvg_use_gl = true;
-            fprintf(stderr, "[tvg] GlCanvas initialized %dx%d (GPU)\n", w, h);
-            tvg_initialized = true;
-            return;
+    // GLES 3.0+ 환경에서만 GlCanvas 시도 (VMware/llvmpipe 등 소프트웨어 GL 회피)
+    const char *gl_ver = (const char *)glGetString(GL_VERSION);
+    bool gles_ok = gl_ver && strstr(gl_ver, "OpenGL ES 3");
+    fprintf(stderr, "[tvg] GL version: %s → %s\n", gl_ver ? gl_ver : "null", gles_ok ? "GlCanvas" : "SwCanvas");
+
+    if (gles_ok) {
+        auto gl = tvg::GlCanvas::gen();
+        if (gl) {
+            res = gl->target(nullptr, nullptr, nullptr, 0, w, h, tvg::ColorSpace::ABGR8888S);
+            if (res == tvg::Result::Success) {
+                tvg_canvas = gl;
+                tvg_use_gl = true;
+                fprintf(stderr, "[tvg] GlCanvas initialized %dx%d (GPU)\n", w, h);
+                tvg_initialized = true;
+                return;
+            }
+            delete gl;
         }
-        delete gl;
-        fprintf(stderr, "[tvg] GlCanvas target failed, falling back to SwCanvas\n");
+        fprintf(stderr, "[tvg] GlCanvas failed, falling back to SwCanvas\n");
     }
 
     // SwCanvas 폴백
