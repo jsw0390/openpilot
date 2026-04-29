@@ -4,9 +4,6 @@ from .core import (
   api_param_set,
   api_cars,
   api_reboot,
-  api_tools,
-  api_tools_start,
-  api_tools_job,
   api_params_restore,
   api_heartbeat_status,
   api_live_runtime,
@@ -15,6 +12,7 @@ from .core import (
   handle_download_params_backup,
 )
 from .features.terminal import handle_download_tmux
+from .features.tools.routes import api_tools, api_tools_start, api_tools_job
 from .features.dashcam.routes import (
   api_dashcam_routes,
   api_dashcam_thumbnail,
