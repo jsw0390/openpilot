@@ -124,7 +124,9 @@ void tvg_init(int w, int h) {
 
     if (gles_ok) {
         auto gl = tvg::GlCanvas::gen();
-        if (gl) {
+        if (!gl) {
+            fprintf(stderr, "[tvg] GlCanvas::gen() returned null\n");
+        } else {
             res = gl->target(nullptr, nullptr, nullptr, 0, w, h, tvg::ColorSpace::ABGR8888S);
             if (res == tvg::Result::Success) {
                 tvg_canvas = gl;
@@ -133,6 +135,7 @@ void tvg_init(int w, int h) {
                 tvg_initialized = true;
                 return;
             }
+            fprintf(stderr, "[tvg] GlCanvas::target() failed: %d\n", (int)res);
             delete gl;
         }
         fprintf(stderr, "[tvg] GlCanvas failed, fallback to SwCanvas\n");
