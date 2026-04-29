@@ -15,13 +15,17 @@ int get_path_length_idx(const cereal::XYZTData::Reader &line, const float path_h
 
 void ModelRenderer::updateData() {
   auto *s = uiState();
+  if (!s || !s->sm) return;
   auto &sm = *(s->sm);
+
   if (sm.rcv_frame("liveCalibration") < s->scene.started_frame ||
       sm.rcv_frame("modelV2") < s->scene.started_frame) {
     return;
   }
 
-  // clip_region은 화면 전체로 설정
+  // 변환 행렬이 아직 설정되지 않았으면 스킵
+  if (car_space_transform.isZero()) return;
+
   clip_region = QRectF(0, 0, s->fb_w, s->fb_h).adjusted(-CLIP_MARGIN, -CLIP_MARGIN, CLIP_MARGIN, CLIP_MARGIN);
   path_offset_z = sm["liveCalibration"].getLiveCalibration().getHeight()[0];
 

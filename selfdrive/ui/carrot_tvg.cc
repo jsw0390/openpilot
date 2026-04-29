@@ -13,6 +13,8 @@
 
 #include <cstring>
 #include <cstdio>
+#include <cmath>
+#include <vector>
 
 static tvg::Canvas *tvg_canvas = nullptr;
 static int tvg_w = 0, tvg_h = 0;
@@ -177,14 +179,25 @@ void tvg_init(int w, int h) {
     tvg_initialized = true;
 }
 
-// QPolygonF → ThorVG Shape 변환
+// QPolygonF → ThorVG Shape 변환 (좌표 검증 포함)
 static tvg::Shape* polygon_to_shape(const QPolygonF &poly, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     if (poly.size() < 3) return nullptr;
 
+    // 유효한 좌표만 수집
+    std::vector<std::pair<float,float>> pts;
+    for (int i = 0; i < poly.size(); i++) {
+        float x = poly[i].x(), y = poly[i].y();
+        if (std::isfinite(x) && std::isfinite(y) &&
+            x > -10000 && x < 10000 && y > -10000 && y < 10000) {
+            pts.push_back({x, y});
+        }
+    }
+    if (pts.size() < 3) return nullptr;
+
     auto shape = tvg::Shape::gen();
-    shape->moveTo(poly[0].x(), poly[0].y());
-    for (int i = 1; i < poly.size(); i++) {
-        shape->lineTo(poly[i].x(), poly[i].y());
+    shape->moveTo(pts[0].first, pts[0].second);
+    for (size_t i = 1; i < pts.size(); i++) {
+        shape->lineTo(pts[i].first, pts[i].second);
     }
     shape->close();
     shape->fill(r, g, b, a);
@@ -265,13 +278,9 @@ void tvg_draw(UIState *s, int w, int h, ModelRenderer *model) {
 
     tvg_canvas->remove();
 
-    // 경로 + 차선 (모델 데이터 있을 때만, 크래시 보호)
-    try {
-        draw_path(model, w, h);
-        draw_lanes(model);
-    } catch (...) {
-        fprintf(stderr, "[tvg] draw_path/lanes exception\n");
-    }
+    // 경로 + 차선
+    draw_path(model, w, h);
+    draw_lanes(model);
 
     // HUD 요소
     draw_hud(s, w, h);
