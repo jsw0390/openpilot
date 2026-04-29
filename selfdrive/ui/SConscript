@@ -2,7 +2,7 @@ import os
 import json
 Import('qt_env', 'arch', 'common', 'messaging', 'visionipc', 'transformations')
 
-# ThorVG v1.0.4 — SharedLibrary (.so) 빌드: GL 심볼 격리
+# ThorVG v1.0.4 — CPU 엔진 (정적 라이브러리)
 thorvg_src = [
   "#third_party/thorvg/src/common/tvgColor.cpp",
   "#third_party/thorvg/src/common/tvgCompressor.cpp",
@@ -22,23 +22,6 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/tvgShape.cpp",
   "#third_party/thorvg/src/renderer/tvgTaskScheduler.cpp",
   "#third_party/thorvg/src/renderer/tvgText.cpp",
-  # GPU engine
-  "#third_party/thorvg/src/renderer/gpu_engine/tvgGpuCommon.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGl.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlEffect.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlGeometry.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlGpuBuffer.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlTextureMgr.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlProgram.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlRenderer.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlSolidBatch.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlRenderPass.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlRenderTarget.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlRenderTask.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlShader.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlShaderSrc.cpp",
-  "#third_party/thorvg/src/renderer/gpu_engine/gl/tvgGlTessellator.cpp",
-  # CPU engine
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwFill.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwImage.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwMath.cpp",
@@ -56,20 +39,15 @@ tvg_env = qt_env.Clone()
 for flag_var in ['CXXFLAGS', 'CCFLAGS', 'CFLAGS']:
     if flag_var in tvg_env:
         tvg_env[flag_var] = [f for f in tvg_env[flag_var] if f not in ['-Werror', '-Wshadow']]
-tvg_env.Append(CXXFLAGS=['-Wno-shadow', '-Wno-error', '-Wno-unused-variable', '-Wno-unused-parameter',
-                          '-DTHORVG_GL_TARGET_GLES=1',
-                          '-fvisibility=hidden'])
-tvg_env.Append(LINKFLAGS=['-Wl,-Bsymbolic'])
+tvg_env.Append(CXXFLAGS=['-Wno-shadow', '-Wno-error', '-Wno-unused-variable', '-Wno-unused-parameter'])
 tvg_env['CPPPATH'] = list(tvg_env.get('CPPPATH', [])) + [
   '#third_party/thorvg/inc',
   '#third_party/thorvg/src/common',
   '#third_party/thorvg/src/renderer',
   '#third_party/thorvg/src/renderer/cpu_engine',
-  '#third_party/thorvg/src/renderer/gpu_engine',
-  '#third_party/thorvg/src/renderer/gpu_engine/gl',
   '#third_party/thorvg/src/loaders/raw',
 ]
-thorvg_lib = tvg_env.SharedLibrary("thorvg", thorvg_src)
+thorvg_lib = tvg_env.Library("thorvg", thorvg_src)
 
 base_libs = [common, messaging, visionipc, transformations,
              'm', 'OpenCL', 'ssl', 'crypto', 'pthread', 'OmxCore', 'avformat', 'avcodec', 'avutil', 'yuv'] + qt_env["LIBS"]
@@ -166,7 +144,6 @@ qt_env.Depends(assets, Glob('#selfdrive/assets/*', exclude=[assets, assets_src, 
 asset_obj = qt_env.Object("assets", assets)
 
 # build main UI
-qt_env.Append(LINKFLAGS=['-Wl,-rpath,\\$$ORIGIN'])
 qt_env.Program("ui", qt_src + [asset_obj], LIBS=qt_libs + [thorvg_lib])
 if GetOption('extras'):
   qt_src.remove("main.cc")  # replaced by test_runner

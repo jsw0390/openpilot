@@ -1,5 +1,4 @@
-// CarrotPilot ThorVG HUD — GPU(GlCanvas) 우선, CPU(SwCanvas) 폴백
-// libthorvg.so의 -Bsymbolic 덕분에 GL 심볼 충돌 없음
+// CarrotPilot ThorVG HUD — SwCanvas (CPU) + GL 텍스처 오버레이
 
 #include "selfdrive/ui/carrot_tvg.h"
 #include <thorvg.h>
@@ -13,14 +12,12 @@
 #include <cstring>
 #include <cstdio>
 
-static tvg::Canvas *tvg_canvas = nullptr;
+static tvg::SwCanvas *tvg_canvas = nullptr;
+static uint32_t *tvg_buffer = nullptr;
 static int tvg_w = 0, tvg_h = 0;
 static bool tvg_initialized = false;
 static bool tvg_failed = false;
-static bool tvg_use_gl = false;
 
-// SwCanvas 폴백용
-static uint32_t *tvg_buffer = nullptr;
 static GLuint tvg_texture = 0;
 static GLuint tvg_vao = 0, tvg_vbo = 0;
 static GLuint tvg_shader_program = 0;
@@ -64,7 +61,7 @@ static GLuint compile_shader(GLenum type, const char *src) {
     return s;
 }
 
-static bool init_sw_overlay(int w, int h) {
+static bool init_gl_overlay(int w, int h) {
     GLuint vs = compile_shader(GL_VERTEX_SHADER, vert_src);
     GLuint fs = compile_shader(GL_FRAGMENT_SHADER, frag_src);
     if (!vs || !fs) return false;
@@ -114,69 +111,47 @@ void tvg_init(int w, int h) {
         return;
     }
 
-    tvg_w = w;
-    tvg_h = h;
-
-    // GlCanvas 시도 (GLES 3.0+ 환경에서만)
-    const char *gl_ver = (const char *)glGetString(GL_VERSION);
-    bool gles_ok = gl_ver && strstr(gl_ver, "OpenGL ES 3");
-    fprintf(stderr, "[tvg] GL: %s -> %s\n", gl_ver ? gl_ver : "null", gles_ok ? "GlCanvas" : "SwCanvas");
-
-    if (gles_ok) {
-        auto gl = tvg::GlCanvas::gen();
-        if (!gl) {
-            fprintf(stderr, "[tvg] GlCanvas::gen() returned null\n");
-        } else {
-            res = gl->target(nullptr, nullptr, nullptr, 0, w, h, tvg::ColorSpace::ABGR8888S);
-            if (res == tvg::Result::Success) {
-                tvg_canvas = gl;
-                tvg_use_gl = true;
-                fprintf(stderr, "[tvg] GlCanvas %dx%d (GPU)\n", w, h);
-                tvg_initialized = true;
-                return;
-            }
-            fprintf(stderr, "[tvg] GlCanvas::target() failed: %d\n", (int)res);
-            delete gl;
-        }
-        fprintf(stderr, "[tvg] GlCanvas failed, fallback to SwCanvas\n");
-    }
-
-    // SwCanvas 폴백
-    auto sw = tvg::SwCanvas::gen();
-    if (!sw) {
+    tvg_canvas = tvg::SwCanvas::gen();
+    if (!tvg_canvas) {
         fprintf(stderr, "[tvg] SwCanvas::gen() failed\n");
         tvg_failed = true;
         return;
     }
 
+    tvg_w = w;
+    tvg_h = h;
     tvg_buffer = new uint32_t[w * h];
     memset(tvg_buffer, 0, w * h * sizeof(uint32_t));
-    res = sw->target(tvg_buffer, w, w, h, tvg::ColorSpace::ABGR8888S);
+
+    res = tvg_canvas->target(tvg_buffer, w, w, h, tvg::ColorSpace::ABGR8888S);
     if (res != tvg::Result::Success) {
         fprintf(stderr, "[tvg] SwCanvas target failed: %d\n", (int)res);
-        delete sw;
-        delete[] tvg_buffer;
-        tvg_buffer = nullptr;
         tvg_failed = true;
         return;
     }
 
-    if (!init_sw_overlay(w, h)) {
-        fprintf(stderr, "[tvg] SW overlay init failed\n");
-        delete sw;
-        delete[] tvg_buffer;
-        tvg_buffer = nullptr;
+    if (!init_gl_overlay(w, h)) {
+        fprintf(stderr, "[tvg] GL overlay init failed\n");
         tvg_failed = true;
         return;
     }
 
-    tvg_canvas = sw;
-    tvg_use_gl = false;
-    fprintf(stderr, "[tvg] SwCanvas %dx%d (CPU)\n", w, h);
+    fprintf(stderr, "[tvg] initialized %dx%d\n", w, h);
     tvg_initialized = true;
 }
 
-static void add_shapes(UIState *s, int w, int h) {
+void tvg_draw(UIState *s, int w, int h) {
+    if (tvg_failed) return;
+
+    if (!tvg_initialized || tvg_w != w || tvg_h != h) {
+        if (tvg_initialized) tvg_destroy();
+        tvg_init(w, h);
+        if (tvg_failed) return;
+    }
+
+    memset(tvg_buffer, 0, tvg_w * tvg_h * sizeof(uint32_t));
+    tvg_canvas->remove();
+
     float cx = w / 2.0f;
 
     auto bg = tvg::Shape::gen();
@@ -205,46 +180,21 @@ static void add_shapes(UIState *s, int w, int h) {
         bar->fill(23, 51, 73, 255);
     }
     tvg_canvas->add(bar);
-}
 
-void tvg_draw(UIState *s, int w, int h) {
-    if (tvg_failed) return;
+    tvg_canvas->draw(true);
+    tvg_canvas->sync();
 
-    if (!tvg_initialized || tvg_w != w || tvg_h != h) {
-        if (tvg_initialized) tvg_destroy();
-        tvg_init(w, h);
-        if (tvg_failed) return;
-    }
-
-    if (!tvg_use_gl && tvg_buffer) {
-        memset(tvg_buffer, 0, tvg_w * tvg_h * sizeof(uint32_t));
-    }
-
-    tvg_canvas->remove();
-    add_shapes(s, w, h);
-
-    if (tvg_use_gl) {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        tvg_canvas->draw(true);
-        tvg_canvas->sync();
-        glDisable(GL_BLEND);
-    } else {
-        tvg_canvas->draw(true);
-        tvg_canvas->sync();
-        // CPU → GL 텍스처 업로드
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glBindTexture(GL_TEXTURE_2D, tvg_texture);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tvg_w, tvg_h, GL_RGBA, GL_UNSIGNED_BYTE, tvg_buffer);
-        glUseProgram(tvg_shader_program);
-        glBindVertexArray(tvg_vao);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glBindVertexArray(0);
-        glUseProgram(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glDisable(GL_BLEND);
-    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D, tvg_texture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tvg_w, tvg_h, GL_RGBA, GL_UNSIGNED_BYTE, tvg_buffer);
+    glUseProgram(tvg_shader_program);
+    glBindVertexArray(tvg_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_BLEND);
 }
 
 void tvg_destroy() {
