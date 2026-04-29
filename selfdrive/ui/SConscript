@@ -33,6 +33,7 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwRle.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwShape.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwStroke.cpp",
+  "#third_party/thorvg/src/loaders/raw/tvgRawLoader.cpp",
 ]
 
 # ThorVG를 별도 환경으로 빌드 (경고 플래그 완화 — ThorVG 소스의 shadow 경고 방지)
@@ -46,6 +47,7 @@ tvg_env['CPPPATH'] = list(tvg_env.get('CPPPATH', [])) + [
   '#third_party/thorvg/src/common',
   '#third_party/thorvg/src/renderer',
   '#third_party/thorvg/src/renderer/cpu_engine',
+  '#third_party/thorvg/src/loaders/raw',
 ]
 thorvg_lib = tvg_env.Library("thorvg", thorvg_src)
 
