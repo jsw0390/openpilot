@@ -265,9 +265,13 @@ void tvg_draw(UIState *s, int w, int h, ModelRenderer *model) {
 
     tvg_canvas->remove();
 
-    // 경로 + 차선 (모델 데이터 있을 때만)
-    draw_path(model, w, h);
-    draw_lanes(model);
+    // 경로 + 차선 (모델 데이터 있을 때만, 크래시 보호)
+    try {
+        draw_path(model, w, h);
+        draw_lanes(model);
+    } catch (...) {
+        fprintf(stderr, "[tvg] draw_path/lanes exception\n");
+    }
 
     // HUD 요소
     draw_hud(s, w, h);
