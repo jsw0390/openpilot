@@ -220,6 +220,9 @@ static void calc_path_polygon(ModelRenderer *model, const UIState *s, QPolygonF 
     if (sm.rcv_frame("modelV2") < s->scene.started_frame ||
         sm.rcv_frame("liveCalibration") < s->scene.started_frame) return;
 
+    // clip_region 설정 (model.draw()가 해주던 것)
+    model->clip_region = QRectF(0, 0, s->fb_w, s->fb_h).adjusted(-500, -500, 500, 500);
+
     const auto &modelV2 = sm["modelV2"].getModelV2();
     const auto &pos = modelV2.getPosition();
     const auto pos_x = pos.getX(), pos_y = pos.getY(), pos_z = pos.getZ();
