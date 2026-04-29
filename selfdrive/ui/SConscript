@@ -56,7 +56,7 @@ for flag_var in ['CXXFLAGS', 'CCFLAGS', 'CFLAGS']:
         tvg_env[flag_var] = [f for f in tvg_env[flag_var] if f not in ['-Werror', '-Wshadow']]
 tvg_env.Append(CXXFLAGS=['-Wno-shadow', '-Wno-error', '-Wno-unused-variable', '-Wno-unused-parameter',
                           '-DTHORVG_GL_TARGET_GLES=1', '-fvisibility=hidden'])
-tvg_env.Append(LINKFLAGS=['-Wl,-Bsymbolic'])
+tvg_env.Append(LINKFLAGS=['-Wl,-Bsymbolic', '-Wl,-soname,libthorvg.so'])
 tvg_env['CPPPATH'] = list(tvg_env.get('CPPPATH', [])) + [
   '#third_party/thorvg/inc',
   '#third_party/thorvg/src/common',
