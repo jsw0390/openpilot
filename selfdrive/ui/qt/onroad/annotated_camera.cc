@@ -34,7 +34,7 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *par
 	record_timer->start(1000/UI_FREQ);
 
 	recorder = new ScreenRecoder(this);
-	main_layout->addWidget(recorder, 0, Qt::AlignBottom | Qt::AlignRight);
+	recorder->hide();
   
 }
 
