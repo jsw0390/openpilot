@@ -2,7 +2,7 @@ import os
 import json
 Import('qt_env', 'arch', 'common', 'messaging', 'visionipc', 'transformations')
 
-# ThorVG source files (SW engine only, no GL/WG)
+# ThorVG source files (CPU engine only, no GL/WG) — v1.0.4
 thorvg_src = [
   "#third_party/thorvg/src/common/tvgColor.cpp",
   "#third_party/thorvg/src/common/tvgCompressor.cpp",
@@ -14,6 +14,7 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/tvgFill.cpp",
   "#third_party/thorvg/src/renderer/tvgInitializer.cpp",
   "#third_party/thorvg/src/renderer/tvgLoader.cpp",
+  "#third_party/thorvg/src/renderer/tvgLoaderMgr.cpp",
   "#third_party/thorvg/src/renderer/tvgPaint.cpp",
   "#third_party/thorvg/src/renderer/tvgPicture.cpp",
   "#third_party/thorvg/src/renderer/tvgRender.cpp",
@@ -22,16 +23,16 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/tvgShape.cpp",
   "#third_party/thorvg/src/renderer/tvgTaskScheduler.cpp",
   "#third_party/thorvg/src/renderer/tvgText.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwFill.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwImage.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwMath.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwMemPool.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwPostEffect.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRaster.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRenderer.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwRle.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwShape.cpp",
-  "#third_party/thorvg/src/renderer/sw_engine/tvgSwStroke.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwFill.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwImage.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwMath.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwMemPool.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwPostEffect.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwRaster.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwRenderer.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwRle.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwShape.cpp",
+  "#third_party/thorvg/src/renderer/cpu_engine/tvgSwStroke.cpp",
 ]
 
 base_libs = [common, messaging, visionipc, transformations,
@@ -67,12 +68,12 @@ widgets = qt_env.Library("qt_widgets", widgets_src, LIBS=base_libs)
 Export('widgets')
 qt_libs = [widgets, qt_util] + base_libs
 
-# ThorVG include paths
+# ThorVG include paths (v1.0.4)
 qt_env['CPPPATH'] += [
   '#third_party/thorvg/inc',
   '#third_party/thorvg/src/common',
   '#third_party/thorvg/src/renderer',
-  '#third_party/thorvg/src/renderer/sw_engine',
+  '#third_party/thorvg/src/renderer/cpu_engine',
 ]
 
 qt_src = ["main.cc", "ui.cc", "qt/sidebar.cc", "qt/body.cc",
