@@ -3107,8 +3107,8 @@ void ui_draw(UIState *s, ModelRenderer* model_renderer, int w, int h) {
     ui_resize(s, w, h);
   }
 
-  extern void tvg_draw(UIState *s, int w, int h);
-  tvg_draw(s, w, h);
+  extern void tvg_draw(UIState *s, int w, int h, ModelRenderer *model);
+  tvg_draw(s, w, h, model_renderer);
 
 #if 0 // === 기존 NanoVG 렌더링 (참조용 보존) ===
   glEnable(GL_BLEND);

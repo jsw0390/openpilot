@@ -13,6 +13,24 @@ int get_path_length_idx(const cereal::XYZTData::Reader &line, const float path_h
   return max_idx;
 }
 
+void ModelRenderer::updateData() {
+  auto *s = uiState();
+  auto &sm = *(s->sm);
+  if (sm.rcv_frame("liveCalibration") < s->scene.started_frame ||
+      sm.rcv_frame("modelV2") < s->scene.started_frame) {
+    return;
+  }
+
+  // clip_region은 화면 전체로 설정
+  clip_region = QRectF(0, 0, s->fb_w, s->fb_h).adjusted(-CLIP_MARGIN, -CLIP_MARGIN, CLIP_MARGIN, CLIP_MARGIN);
+  path_offset_z = sm["liveCalibration"].getLiveCalibration().getHeight()[0];
+
+  const auto &model = sm["modelV2"].getModelV2();
+  const auto &radar_state = sm["radarState"].getRadarState();
+  const auto &lead_one = radar_state.getLeadOne();
+  update_model(model, lead_one);
+}
+
 void ModelRenderer::draw(QPainter &painter, const QRect &surface_rect) {
   auto *s = uiState();
   auto &sm = *(s->sm);

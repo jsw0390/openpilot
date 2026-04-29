@@ -10,6 +10,7 @@ public:
   ModelRenderer() {}
   void setTransform(const Eigen::Matrix3f &transform) { car_space_transform = transform; }
   void draw(QPainter &painter, const QRect &surface_rect);
+  void updateData();  // 폴리곤 데이터만 업데이트 (그리기 없음)
 
 private:
 public:

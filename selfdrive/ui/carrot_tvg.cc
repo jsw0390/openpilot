@@ -1,7 +1,8 @@
 // CarrotPilot ThorVG HUD — GlCanvas(GPU) 우선 + SwCanvas(CPU) 자동 폴백
-// libthorvg.so의 -Bsymbolic으로 GL 심볼 충돌 방지
+// 경로(path) + 차선(lane lines) + 도로 가장자리(road edges)
 
 #include "selfdrive/ui/carrot_tvg.h"
+#include "selfdrive/ui/qt/onroad/model.h"
 #include <thorvg.h>
 
 #ifdef __APPLE__
@@ -117,7 +118,7 @@ void tvg_init(int w, int h) {
     tvg_w = w;
     tvg_h = h;
 
-    // GlCanvas 시도 (GLES 3.0+ 환경)
+    // GlCanvas 시도 (GLES 3.0+)
     const char *gl_ver = (const char *)glGetString(GL_VERSION);
     bool gles_ok = gl_ver && strstr(gl_ver, "OpenGL ES 3");
     fprintf(stderr, "[tvg] GL: %s\n", gl_ver ? gl_ver : "null");
@@ -138,7 +139,7 @@ void tvg_init(int w, int h) {
             fprintf(stderr, "[tvg] GlCanvas::target() failed: %d\n", (int)res);
             delete gl;
         }
-        fprintf(stderr, "[tvg] GlCanvas failed, using SwCanvas fallback\n");
+        fprintf(stderr, "[tvg] GlCanvas failed, using SwCanvas\n");
     }
 
     // SwCanvas 폴백
@@ -172,11 +173,53 @@ void tvg_init(int w, int h) {
 
     tvg_canvas = sw;
     tvg_use_gl = false;
-    fprintf(stderr, "[tvg] SwCanvas %dx%d (CPU fallback)\n", w, h);
+    fprintf(stderr, "[tvg] SwCanvas %dx%d (CPU)\n", w, h);
     tvg_initialized = true;
 }
 
-static void add_shapes(UIState *s, int w, int h) {
+// QPolygonF → ThorVG Shape 변환
+static tvg::Shape* polygon_to_shape(const QPolygonF &poly, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (poly.size() < 3) return nullptr;
+
+    auto shape = tvg::Shape::gen();
+    shape->moveTo(poly[0].x(), poly[0].y());
+    for (int i = 1; i < poly.size(); i++) {
+        shape->lineTo(poly[i].x(), poly[i].y());
+    }
+    shape->close();
+    shape->fill(r, g, b, a);
+    return shape;
+}
+
+static void draw_path(ModelRenderer *model, int w, int h) {
+    if (!model || model->track_vertices.size() < 3) return;
+
+    // 경로 — 녹색 반투명
+    auto path = polygon_to_shape(model->track_vertices, 23, 134, 68, 100);
+    if (path) tvg_canvas->add(path);
+}
+
+static void draw_lanes(ModelRenderer *model) {
+    if (!model) return;
+
+    // 차선 4개 — 흰색
+    for (int i = 0; i < 4; i++) {
+        if (model->lane_line_vertices[i].size() < 3) continue;
+        uint8_t alpha = (uint8_t)(std::clamp(model->lane_line_probs[i], 0.0f, 0.7f) * 255);
+        auto lane = polygon_to_shape(model->lane_line_vertices[i], 255, 255, 255, alpha);
+        if (lane) tvg_canvas->add(lane);
+    }
+
+    // 도로 가장자리 2개 — 빨간색
+    for (int i = 0; i < 2; i++) {
+        if (model->road_edge_vertices[i].size() < 3) continue;
+        uint8_t alpha = (uint8_t)(std::clamp(1.0f - model->road_edge_stds[i], 0.0f, 1.0f) * 255);
+        auto edge = polygon_to_shape(model->road_edge_vertices[i], 255, 0, 0, alpha);
+        if (edge) tvg_canvas->add(edge);
+    }
+}
+
+static void draw_hud(UIState *s, int w, int h) {
     float cx = w / 2.0f;
 
     auto bg = tvg::Shape::gen();
@@ -207,7 +250,7 @@ static void add_shapes(UIState *s, int w, int h) {
     tvg_canvas->add(bar);
 }
 
-void tvg_draw(UIState *s, int w, int h) {
+void tvg_draw(UIState *s, int w, int h, ModelRenderer *model) {
     if (tvg_failed) return;
 
     if (!tvg_initialized || tvg_w != w || tvg_h != h) {
@@ -221,17 +264,21 @@ void tvg_draw(UIState *s, int w, int h) {
     }
 
     tvg_canvas->remove();
-    add_shapes(s, w, h);
+
+    // 경로 + 차선 (모델 데이터 있을 때만)
+    draw_path(model, w, h);
+    draw_lanes(model);
+
+    // HUD 요소
+    draw_hud(s, w, h);
 
     if (tvg_use_gl) {
-        // GPU 직접 렌더링
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         tvg_canvas->draw(true);
         tvg_canvas->sync();
         glDisable(GL_BLEND);
     } else {
-        // CPU → GL 텍스처 업로드
         tvg_canvas->draw(true);
         tvg_canvas->sync();
 

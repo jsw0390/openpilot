@@ -197,7 +197,7 @@ void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setPen(Qt::NoPen);
 
-  //model.draw(painter, rect());  // ThorVG 전환 중 비활성화
+  model.updateData();  // ThorVG용 폴리곤 데이터 준비 (QPainter 그리기 없음)
   painter.beginNativePainting();
   try {
       ui_draw(s, &model, width(), height());      
