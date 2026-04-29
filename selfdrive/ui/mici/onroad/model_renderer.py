@@ -151,25 +151,18 @@ class ModelRenderer(Widget):
 
       self._update_model(lead_one, path_x_array)
       if render_lead_indicator:
-        self._update_leads_carrot(radar_state, path_x_array)
-        
-      if ui_state.show_radar_info > 0 and radar_state is not None:
-        self._update_radar_info(radar_state, path_x_array)
-      else:
-        self._radar_info_items = []
+        self._update_leads(radar_state, path_x_array)
         
       self._transform_dirty = False
 
     # Draw elements (hide when disengaged)
     self._draw_lane_lines()
-    if ui_state.status != UIStatus.DISENGAGED:
+    if ui_state.status != UIStatus.DISENGAGED or ui_state.lat_active:
       #self._draw_lane_lines()
       self._draw_path(sm)
 
     if render_lead_indicator and radar_state:
-      self._draw_lead_indicator()
-    if ui_state.show_radar_info > 0:
-      self._draw_radar_info()
+      self._draw_lead_indicator_old()
       
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""

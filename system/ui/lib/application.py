@@ -1061,5 +1061,9 @@ class GuiApplication:
     # comma four UI is the default. Set BIG=1 explicitly to use the comma 3X layout.
     return BIG_UI
 
+  @staticmethod
+  def sunnypilot_ui() -> bool:
+    return False
+
 
 gui_app = GuiApplication()

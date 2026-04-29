@@ -188,7 +188,9 @@ class HudRenderer(Widget):
     self._txt_wheel_lane: rl.Texture = gui_app.texture('icons_mici/carrot_wheel_lane.png', 100, 50) # 당근 레인모드
     self._txt_wheel_cap: rl.Texture = gui_app.texture('icons_mici/carrot_wheel_cap.png', 50, 50) # 당근 휠 중앙 당근맨
 
-    self._txt_exclamation_point: rl.Texture = gui_app.texture('icons_mici/exclamation_point.png', 44, 44)
+    self._txt_wheel = gui_app.texture('icons_mici/wheel.png', 50, 50)
+    self._txt_wheel_critical = gui_app.texture('icons_mici/wheel_critical.png', 50, 50)
+    self._txt_exclamation_point: rl.Texture = gui_app.texture('icons_mici/exclamation_point.png', 9, 44)
 
     # Bottom-left speed panel background
     self._txt_speed_bg: rl.Texture = gui_app.texture('images/speed_bg.png', 307, 115)
@@ -248,26 +250,28 @@ class HudRenderer(Widget):
 
     self._torque_bar.render(rect)
 
-    # bottom-left panel (speed_bg)
-    self._draw_set_speed(rect)
+    if self.is_cruise_set:
+      self._draw_set_speed_sunny(rect)
 
     self._draw_steering_wheel(rect)
 
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
     wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else self._txt_wheel
 
-    # Always visible (no hide). We keep filters but drive them to stable values.
-    self._wheel_alpha_filter.update(255 * 0.95)
-    self._wheel_y_filter.update(0)
+    if self._show_wheel_critical:
+      self._wheel_alpha_filter.update(255)
+      self._wheel_y_filter.update(0)
+    elif ui_state.status == UIStatus.DISENGAGED and not ui_state.lat_active:
+      self._wheel_alpha_filter.update(0)
+      self._wheel_y_filter.update(wheel_txt.height / 2)
+    else:
+      self._wheel_alpha_filter.update(255 * 0.9)
+      self._wheel_y_filter.update(0)
 
-    # pos (TOP-left)
-    margin_x = 18
-    margin_y = 18
-    pos_x = int(rect.x + margin_x + wheel_txt.width / 2)
-    pos_y = int(rect.y + margin_y + wheel_txt.height / 2 + self._wheel_y_filter.x)
+    pos_x = int(rect.x + 21 + wheel_txt.width / 2)
+    pos_y = int(rect.y + rect.height - 14 - wheel_txt.height / 2 + self._wheel_y_filter.x)
 
     self._draw_steering_wheel_icon(wheel_txt, pos_x, pos_y)
-    self._draw_wheel_side_info(wheel_txt, pos_x, pos_y)
 
 
   def _draw_steering_wheel_icon(self, wheel_txt, pos_x: int, pos_y: int) -> None:
@@ -285,14 +289,11 @@ class HudRenderer(Widget):
     dest_rect = rl.Rectangle(pos_x, pos_y, wheel_txt.width, wheel_txt.height)
     origin = (wheel_txt.width / 2, wheel_txt.height / 2)
 
-    if ui_state.lat_active:
-      wheel_color = rl.Color(0, 255, 0, int(self._wheel_alpha_filter.x))
-    else:
-      wheel_color = rl.Color(230, 230, 230, int(self._wheel_alpha_filter.x))
+    wheel_color = rl.Color(255, 255, 255, int(self._wheel_alpha_filter.x))
 
     rl.draw_texture_pro(wheel_txt, src_rect, dest_rect, origin, rotation, wheel_color)
     # 당근맨은 틴팅 없이 덧대서 그리기
-    rl.draw_texture_pro(self._txt_wheel_cap, src_rect, dest_rect, origin, rotation, rl.WHITE)
+    # Keep the stock wheel texture unmodified for a cleaner sunny-style HUD.
 
     if self._show_wheel_critical:
       EXCLAMATION_POINT_SPACING = 10
@@ -300,7 +301,7 @@ class HudRenderer(Widget):
       exclamation_pos_y = pos_y - self._txt_exclamation_point.height / 2
       rl.draw_texture_ex(self._txt_exclamation_point, rl.Vector2(exclamation_pos_x, exclamation_pos_y), 0.0, 1.0, rl.WHITE)
     # 속도패널 디버깅 모드거나 레인모드일 때 차선 이미지 추가
-    elif self._debug_speed_panel or bool(ui_state.sm['controlsState'].activeLaneLine):
+    elif False:
       LANE_TOP_OFFSET = 3
       lane_pos_x = pos_x - self._txt_wheel_lane.width / 2
       lane_pos_y = pos_y - self._txt_wheel_lane.height / 2 - LANE_TOP_OFFSET
@@ -450,6 +451,50 @@ class HudRenderer(Widget):
 
     if road_name:
       draw_text_ui_style(road_name, info_x, road_y, side_font, rl.Color(255, 255, 255, 210), font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
+
+  def _draw_set_speed_sunny(self, rect: rl.Rectangle) -> None:
+    """Draw a small transient MAX indicator similar to the stock/sunny HUD."""
+    alpha = self._set_speed_alpha_filter.update(
+      0 < rl.get_time() - self._set_speed_changed_time < SET_SPEED_PERSISTENCE and
+      self._can_draw_top_icons and self._engaged
+    )
+    if alpha < 1e-2:
+      return
+
+    x = rect.x
+    y = rect.y
+    circle_radius = 162 // 2
+    rl.draw_circle_gradient(
+      int(x + circle_radius),
+      int(y + circle_radius),
+      circle_radius,
+      rl.Color(0, 0, 0, int(255 / 2 * alpha)),
+      rl.BLANK,
+    )
+
+    set_speed = self.set_speed
+    if self.is_cruise_set and not ui_state.is_metric:
+      set_speed *= KM_TO_MILE
+
+    color = rl.Color(255, 255, 255, int(255 * 0.9 * alpha))
+    set_speed_text = CRUISE_DISABLED_CHAR if not self.is_cruise_set else str(round(set_speed))
+    rl.draw_text_ex(
+      self._font_display,
+      set_speed_text,
+      rl.Vector2(x + 17, y - 4),
+      FONT_SIZES.set_speed,
+      0,
+      color,
+    )
+
+    rl.draw_text_ex(
+      self._font_semi_bold,
+      tr("MAX"),
+      rl.Vector2(x + 25, y + FONT_SIZES.set_speed - 3),
+      FONT_SIZES.max_speed,
+      0,
+      color,
+    )
 
 
   def _get_gear_text(self) -> str:
