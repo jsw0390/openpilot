@@ -224,7 +224,7 @@ static void calc_path_polygon(ModelRenderer *model, const UIState *s, QPolygonF 
         const auto &lead = sm["radarState"].getRadarState().getLeadOne();
         if (lead.getStatus()) {
             float lead_d = lead.getDRel() * 2.0f;
-            max_dist = std::clamp(lead_d - fmin(lead_d * 0.35f, 10.f), 0.0f, max_dist);
+            max_dist = std::clamp(lead_d - fminf(lead_d * 0.35f, 10.f), 0.0f, max_dist);
         }
     }
 
