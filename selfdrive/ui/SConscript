@@ -43,7 +43,7 @@ thorvg_src = [
   "#third_party/thorvg/src/loaders/raw/tvgRawLoader.cpp",
 ]
 
-# ThorVG를 별도 환경으로 빌드 (경고 플래그 완화 — ThorVG 소스의 shadow 경고 방지)
+
 tvg_env = qt_env.Clone()
 for flag_var in ['CXXFLAGS', 'CCFLAGS', 'CFLAGS']:
     if flag_var in tvg_env:
