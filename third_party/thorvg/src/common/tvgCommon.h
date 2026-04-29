@@ -67,8 +67,10 @@ using namespace tvg;
     #define strncpy strncpy_s
 #endif
 
+#if 0 // openpilot 호환: 전역 new/delete 비활성화
 void* operator new(std::size_t size);
 void operator delete(void* ptr) noexcept;
+#endif
 
 namespace tvg {
 

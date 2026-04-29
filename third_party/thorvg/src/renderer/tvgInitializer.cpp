@@ -133,6 +133,7 @@ uint16_t THORVG_VERSION_NUMBER()
 }
 
 
+#if 0 // openpilot/Qt 호환: 전역 new/delete 오버라이드 비활성화
 void* operator new(std::size_t size)
 {
     return tvg::malloc(size);
@@ -155,3 +156,4 @@ void operator delete[](void* ptr) noexcept
 {
     tvg::free(ptr);
 }
+#endif
