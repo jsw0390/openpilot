@@ -7,7 +7,8 @@ from aiohttp import web
 from openpilot.common.realtime import set_core_affinity
 
 from .server.app_factory import make_app
-from .server.core import DEFAULT_SETTINGS_PATH, WEB_DIR, _settings_cache
+from .server.config import DEFAULT_SETTINGS_PATH, WEB_DIR
+from .server.services.settings import settings_cache as _settings_cache
 
 
 def main():

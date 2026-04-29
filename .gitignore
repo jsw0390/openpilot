@@ -15,6 +15,8 @@ a.out
 .hypothesis
 
 /docs_site/
+/docs/jominki354/
+/.claude/
 
 *.dylib
 *.DSYM

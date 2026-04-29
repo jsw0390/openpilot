@@ -11,17 +11,21 @@ from .core import (
   api_heartbeat_status,
   api_live_runtime,
   api_time_sync,
+  proxy_stream,
+  handle_download_tmux,
+  handle_download_params_backup,
+)
+from .features.dashcam.routes import (
   api_dashcam_routes,
   api_dashcam_thumbnail,
   api_dashcam_preview,
   api_dashcam_video,
   api_dashcam_download,
   api_dashcam_upload,
+)
+from .features.screenrecord.routes import (
   api_screenrecord_videos,
   api_screenrecord_thumbnail,
   api_screenrecord_video,
   api_screenrecord_download,
-  proxy_stream,
-  handle_download_tmux,
-  handle_download_params_backup,
 )
