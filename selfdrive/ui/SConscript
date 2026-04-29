@@ -35,10 +35,12 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwStroke.cpp",
 ]
 
-# ThorVG를 별도 환경으로 빌드 (경고 플래그 완화)
+# ThorVG를 별도 환경으로 빌드 (경고 플래그 완화 — ThorVG 소스의 shadow 경고 방지)
 tvg_env = qt_env.Clone()
-tvg_env['CXXFLAGS'] = [f for f in tvg_env.get('CXXFLAGS', []) if f not in ['-Werror']]
-tvg_env.Append(CXXFLAGS=['-Wno-shadow', '-Wno-error', '-Wno-unused-variable'])
+for flag_var in ['CXXFLAGS', 'CCFLAGS', 'CFLAGS']:
+    if flag_var in tvg_env:
+        tvg_env[flag_var] = [f for f in tvg_env[flag_var] if f not in ['-Werror', '-Wshadow']]
+tvg_env.Append(CXXFLAGS=['-Wno-shadow', '-Wno-error', '-Wno-unused-variable', '-Wno-unused-parameter'])
 tvg_env['CPPPATH'] = list(tvg_env.get('CPPPATH', [])) + [
   '#third_party/thorvg/inc',
   '#third_party/thorvg/src/common',
