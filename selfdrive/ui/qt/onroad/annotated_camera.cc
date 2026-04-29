@@ -197,7 +197,7 @@ void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setPen(Qt::NoPen);
 
-  model.updateData();  // ThorVG용 폴리곤 데이터 준비
+  // model 데이터는 tvg_draw 내에서 직접 cereal 접근
   painter.beginNativePainting();
   try {
       ui_draw(s, &model, width(), height());      

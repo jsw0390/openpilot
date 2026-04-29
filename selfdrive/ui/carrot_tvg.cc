@@ -204,30 +204,134 @@ static tvg::Shape* polygon_to_shape(const QPolygonF &poly, uint8_t r, uint8_t g,
     return shape;
 }
 
-static void draw_path(ModelRenderer *model, int w, int h) {
-    if (!model || model->track_vertices.size() < 3) return;
+// cereal에서 직접 경로 폴리곤 계산 (carrot.cc와 동일 방식)
+static void calc_path_polygon(ModelRenderer *model, const UIState *s, QPolygonF &out) {
+    out.clear();
+    if (!model || !s || !s->sm) return;
+    auto &sm = *(s->sm);
 
-    // 경로 — 녹색 반투명
-    auto path = polygon_to_shape(model->track_vertices, 23, 134, 68, 100);
-    if (path) tvg_canvas->add(path);
+    if (sm.rcv_frame("modelV2") < s->scene.started_frame ||
+        sm.rcv_frame("liveCalibration") < s->scene.started_frame) return;
+
+    const auto &modelV2 = sm["modelV2"].getModelV2();
+    const auto &pos = modelV2.getPosition();
+    const auto pos_x = pos.getX(), pos_y = pos.getY(), pos_z = pos.getZ();
+
+    float max_dist = std::clamp(*(pos_x.end() - 1), 10.0f, 100.0f);
+
+    // lead 차량 고려
+    if (sm.alive("radarState")) {
+        const auto &lead = sm["radarState"].getRadarState().getLeadOne();
+        if (lead.getStatus()) {
+            float lead_d = lead.getDRel() * 2.0f;
+            max_dist = std::clamp(lead_d - fmin(lead_d * 0.35f, 10.f), 0.0f, max_dist);
+        }
+    }
+
+    int max_idx = 0;
+    for (int i = 1; i < (int)pos_x.size() && pos_x[i] <= max_dist; ++i) max_idx = i;
+
+    float path_offset_z = sm["liveCalibration"].getLiveCalibration().getHeight()[0];
+
+    QPolygonF left_pts, right_pts;
+    for (int i = 0; i <= max_idx; i++) {
+        if (pos_x[i] < 0) continue;
+        QPointF left, right;
+        bool l = model->mapToScreen(pos_x[i], pos_y[i] - 0.9f, pos_z[i] + path_offset_z, &left);
+        bool r = model->mapToScreen(pos_x[i], pos_y[i] + 0.9f, pos_z[i] + path_offset_z, &right);
+        if (l && r) {
+            if (left_pts.size() && left.y() > left_pts.back().y()) continue;
+            left_pts.push_back(left);
+            right_pts.push_front(right);
+        }
+    }
+    out = left_pts + right_pts;
 }
 
-static void draw_lanes(ModelRenderer *model) {
-    if (!model) return;
+// cereal에서 직접 차선 폴리곤 계산
+static void calc_lane_polygons(ModelRenderer *model, const UIState *s,
+                                QPolygonF lane_verts[4], float lane_probs[4],
+                                QPolygonF edge_verts[2], float edge_stds[2]) {
+    if (!model || !s || !s->sm) return;
+    auto &sm = *(s->sm);
 
-    // 차선 4개 — 흰색
+    if (sm.rcv_frame("modelV2") < s->scene.started_frame ||
+        sm.rcv_frame("liveCalibration") < s->scene.started_frame) return;
+
+    const auto &modelV2 = sm["modelV2"].getModelV2();
+    const auto &pos = modelV2.getPosition();
+    float max_dist = std::clamp(*(pos.getX().end() - 1), 10.0f, 100.0f);
+
+    // 차선
+    const auto &lanes = modelV2.getLaneLines();
+    const auto &probs = modelV2.getLaneLineProbs();
+    int max_idx = 0;
+    for (int i = 1; i < (int)lanes[0].getX().size() && lanes[0].getX()[i] <= max_dist; ++i) max_idx = i;
+
     for (int i = 0; i < 4; i++) {
-        if (model->lane_line_vertices[i].size() < 3) continue;
-        uint8_t alpha = (uint8_t)(std::clamp(model->lane_line_probs[i], 0.0f, 0.7f) * 255);
-        auto lane = polygon_to_shape(model->lane_line_vertices[i], 255, 255, 255, alpha);
+        lane_probs[i] = probs[i];
+        const auto lx = lanes[i].getX(), ly = lanes[i].getY(), lz = lanes[i].getZ();
+        QPolygonF left_pts, right_pts;
+        float y_off = 0.025f * lane_probs[i];
+        for (int j = 0; j <= max_idx; j++) {
+            if (lx[j] < 0) continue;
+            QPointF left, right;
+            bool l = model->mapToScreen(lx[j], ly[j] - y_off, lz[j], &left);
+            bool r = model->mapToScreen(lx[j], ly[j] + y_off, lz[j], &right);
+            if (l && r) {
+                left_pts.push_back(left);
+                right_pts.push_front(right);
+            }
+        }
+        lane_verts[i] = left_pts + right_pts;
+    }
+
+    // 도로 가장자리
+    const auto &edges = modelV2.getRoadEdges();
+    const auto &estds = modelV2.getRoadEdgeStds();
+    for (int i = 0; i < 2; i++) {
+        edge_stds[i] = estds[i];
+        const auto ex = edges[i].getX(), ey = edges[i].getY(), ez = edges[i].getZ();
+        QPolygonF left_pts, right_pts;
+        for (int j = 0; j <= max_idx; j++) {
+            if (ex[j] < 0) continue;
+            QPointF left, right;
+            bool l = model->mapToScreen(ex[j], ey[j] - 0.025f, ez[j], &left);
+            bool r = model->mapToScreen(ex[j], ey[j] + 0.025f, ez[j], &right);
+            if (l && r) {
+                left_pts.push_back(left);
+                right_pts.push_front(right);
+            }
+        }
+        edge_verts[i] = left_pts + right_pts;
+    }
+}
+
+static void draw_path(ModelRenderer *model, UIState *s, int w, int h) {
+    QPolygonF path;
+    calc_path_polygon(model, s, path);
+    if (path.size() < 3) return;
+
+    auto shape = polygon_to_shape(path, 23, 134, 68, 100);
+    if (shape) tvg_canvas->add(shape);
+}
+
+static void draw_lanes(ModelRenderer *model, UIState *s) {
+    QPolygonF lane_verts[4], edge_verts[2];
+    float lane_probs[4] = {}, edge_stds[2] = {};
+    calc_lane_polygons(model, s, lane_verts, lane_probs, edge_verts, edge_stds);
+
+    for (int i = 0; i < 4; i++) {
+        if (lane_verts[i].size() < 3) continue;
+        uint8_t alpha = (uint8_t)(std::clamp(lane_probs[i], 0.0f, 0.7f) * 255);
+        auto lane = polygon_to_shape(lane_verts[i], 255, 255, 255, alpha);
         if (lane) tvg_canvas->add(lane);
     }
 
-    // 도로 가장자리 2개 — 빨간색
     for (int i = 0; i < 2; i++) {
-        if (model->road_edge_vertices[i].size() < 3) continue;
-        uint8_t alpha = (uint8_t)(std::clamp(1.0f - model->road_edge_stds[i], 0.0f, 1.0f) * 255);
-        auto edge = polygon_to_shape(model->road_edge_vertices[i], 255, 0, 0, alpha);
+        if (edge_verts[i].size() < 3) continue;
+        uint8_t alpha = (uint8_t)(std::clamp(1.0f - edge_stds[i], 0.0f, 1.0f) * 255);
+        auto edge = polygon_to_shape(edge_verts[i], 255, 0, 0, alpha);
         if (edge) tvg_canvas->add(edge);
     }
 }
@@ -279,8 +383,8 @@ void tvg_draw(UIState *s, int w, int h, ModelRenderer *model) {
     tvg_canvas->remove();
 
     // 경로 + 차선
-    draw_path(model, w, h);
-    draw_lanes(model);
+    draw_path(model, s, w, h);
+    draw_lanes(model, s);
 
     // HUD 요소
     draw_hud(s, w, h);
