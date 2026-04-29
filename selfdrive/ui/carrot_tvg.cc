@@ -125,6 +125,8 @@ void tvg_init(int w, int h) {
     tvg_w = w;
     tvg_h = h;
 
+    tvg::Result res;
+
     // GlCanvas 시도 (GLES 3.0+)
     const char *gl_ver = (const char *)glGetString(GL_VERSION);
     bool gles_ok = gl_ver && strstr(gl_ver, "OpenGL ES 3");
