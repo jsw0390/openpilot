@@ -107,14 +107,19 @@ static bool init_sw_overlay(int w, int h) {
     return true;
 }
 
+static bool tvg_engine_initialized = false;
+
 void tvg_init(int w, int h) {
     if (tvg_initialized || tvg_failed) return;
 
-    auto res = tvg::Initializer::init(0);
-    if (res != tvg::Result::Success) {
-        fprintf(stderr, "[tvg] Initializer::init failed: %d\n", (int)res);
-        tvg_failed = true;
-        return;
+    if (!tvg_engine_initialized) {
+        auto res = tvg::Initializer::init(0);
+        if (res != tvg::Result::Success) {
+            fprintf(stderr, "[tvg] Initializer::init failed: %d\n", (int)res);
+            tvg_failed = true;
+            return;
+        }
+        tvg_engine_initialized = true;
     }
 
     tvg_w = w;
@@ -426,7 +431,7 @@ void tvg_destroy() {
     if (tvg_vao) { glDeleteVertexArrays(1, &tvg_vao); tvg_vao = 0; }
     if (tvg_vbo) { glDeleteBuffers(1, &tvg_vbo); tvg_vbo = 0; }
     if (tvg_shader_program) { glDeleteProgram(tvg_shader_program); tvg_shader_program = 0; }
-    tvg::Initializer::term();
+    // Initializer::term() 제거 — 리사이즈 시 재초기화 문제 방지
     tvg_initialized = false;
     tvg_failed = false;
 }

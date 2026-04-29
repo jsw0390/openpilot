@@ -259,8 +259,10 @@ void ModelRenderer::drawLead(QPainter &painter, const cereal::RadarState::LeadDa
 
 // Projects a point in car to space to the corresponding point in full frame image space.
 bool ModelRenderer::mapToScreen(float in_x, float in_y, float in_z, QPointF *out) {
+  if (car_space_transform.isZero()) return false;
   Eigen::Vector3f input(in_x, in_y, in_z);
   auto pt = car_space_transform * input;
+  if (std::abs(pt.z()) < 1e-6f) return false;
   *out = QPointF(pt.x() / pt.z(), pt.y() / pt.z());
   return clip_region.contains(*out);
 }
