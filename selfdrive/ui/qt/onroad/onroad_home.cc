@@ -303,7 +303,7 @@ void OnroadWindow::offroadTransition(bool offroad) {
 void OnroadWindow::paintEvent(QPaintEvent *event) {
     QPainter p(this);
     p.beginNativePainting();
-    UIState* s = uiState();
+    //UIState* s = uiState();
     //extern void ui_draw_border(UIState * s, int w, int h, QColor bg, QColor bg_long);
     //ui_draw_border(s, width(), height(), bg, bg_long);
     p.endNativePainting();
