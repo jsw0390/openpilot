@@ -150,6 +150,22 @@ class CarInterface(CarInterfaceBase):
         print("$$$CAMERA_SCC")
 
     # Common lateral control setup
+    
+    # Kia Ray EV - Auto-apply optimized default settings
+    if candidate == CAR.KIA_RAY_EV:
+      print("$$$ Kia Ray EV detected - Applying optimized settings...")
+      params.put_int("LatSmoothSec", 18)      # Steering smoothing
+      params.put_int("SteerActuatorDelay", 20) # Steering delay
+      params.put_int("LatMpcJerkCost", 10)     # Curvature change limit
+      params.put_int("LatMpcMotionCost", 20)   # Motion cost
+      params.put_int("LatMpcPathCost", 230)    # Path cost
+      params.put_int("LatMpcInputOffset", 6)   # Input offset
+      # Lateral torque tuning
+      params.put_int("LateralTorqueKpV", 85)   # Proportional gain
+      params.put_int("LateralTorqueKd", 20)    # Derivative gain
+      params.put_int("LateralTorqueKf", 85)    # Feed-forward gain
+      params.put_int("LateralTorqueCustom", 1) # Enable custom torque
+      print("$$$ Default settings applied to Kia Ray EV")
 
     ret.centerToFront = ret.wheelbase * 0.4
     ret.steerActuatorDelay = 0.1
