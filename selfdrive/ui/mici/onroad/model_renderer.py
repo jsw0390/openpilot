@@ -8,9 +8,11 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.mici.onroad import blend_colors
-from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
+from typing import Optional, Any
 
 CLIP_MARGIN = 500
 MIN_DRAW_DISTANCE = 10.0
@@ -46,8 +48,19 @@ class LeadVehicle:
   glow: list[float] = field(default_factory=list)
   chevron: list[float] = field(default_factory=list)
   fill_alpha: int = 0
+  rect: list[tuple[float, float]] = field(default_factory=list)   # 4 corners (screen space)
+  color: Optional[Any] = None
 
-
+@dataclass
+class RadarInfoItem:
+  x: float = 0.0
+  y: float = 0.0
+  w: float = 0.0
+  h: float = 0.0
+  text: str = ""
+  color: Optional[Any] = None
+  is_star: bool = False
+  
 class ModelRenderer(Widget):
   def __init__(self):
     super().__init__()
@@ -76,6 +89,10 @@ class ModelRenderer(Widget):
     self._car_space_transform = np.zeros((3, 3), dtype=np.float32)
     self._transform_dirty = True
     self._clip_region = None
+    
+    self._lead_pt_filt = [None, None]
+    self._radar_info_items: list[RadarInfoItem] = []
+    self._font_display: rl.Font = gui_app.font(FontWeight.DISPLAY)
 
     self._exp_gradient = Gradient(
       start=(0.0, 1.0),  # Bottom of path
@@ -134,17 +151,26 @@ class ModelRenderer(Widget):
 
       self._update_model(lead_one, path_x_array)
       if render_lead_indicator:
-        self._update_leads(radar_state, path_x_array)
+        self._update_leads_carrot(radar_state, path_x_array)
+        
+      if ui_state.show_radar_info > 0 and radar_state is not None:
+        self._update_radar_info(radar_state, path_x_array)
+      else:
+        self._radar_info_items = []
+        
       self._transform_dirty = False
 
     # Draw elements (hide when disengaged)
+    self._draw_lane_lines()
     if ui_state.status != UIStatus.DISENGAGED:
-      self._draw_lane_lines()
+      #self._draw_lane_lines()
       self._draw_path(sm)
 
-    # if render_lead_indicator and radar_state:
-    #   self._draw_lead_indicator()
-
+    if render_lead_indicator and radar_state:
+      self._draw_lead_indicator()
+    if ui_state.show_radar_info > 0:
+      self._draw_radar_info()
+      
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""
     self._path.raw_points = np.array([model.position.x, model.position.y, model.position.z], dtype=np.float32).T
@@ -174,7 +200,74 @@ class ModelRenderer(Widget):
         point = self._map_to_screen(d_rel, -y_rel, z + self._path_offset_z)
         if point:
           self._lead_vehicles[i] = self._update_lead_vehicle(d_rel, v_rel, point, self._rect)
+          
+  def _update_leads_carrot(self, radar_state, path_x_array):
+    """Carrot: draw leadOne as outline rectangle."""
+    self._lead_vehicles = [LeadVehicle(), LeadVehicle()]
 
+    lead_one = radar_state.leadOne
+
+    def _filter_pt(slot: int, pt: tuple[float, float], alpha: float = 0.2):
+      prev = self._lead_pt_filt[slot]
+      if prev is None:
+        self._lead_pt_filt[slot] = (float(pt[0]), float(pt[1]))
+        return float(pt[0]), float(pt[1])
+
+      x = prev[0] + (float(pt[0]) - prev[0]) * alpha
+      y = prev[1] + (float(pt[1]) - prev[1]) * alpha
+      self._lead_pt_filt[slot] = (x, y)
+      return x, y
+
+    if lead_one and lead_one.status:
+      d_rel = float(lead_one.dRel)
+      y_rel = float(lead_one.yRel)
+
+      idx = self._get_path_length_idx(path_x_array, d_rel)
+      z = float(self._path.raw_points[idx, 2]) if idx < len(self._path.raw_points) else 0.0
+
+      pt_left = self._map_to_screen(d_rel, -y_rel - 1.2, z + self._path_offset_z)
+      pt_right = self._map_to_screen(d_rel, -y_rel + 1.2, z + self._path_offset_z)
+
+      if pt_left and pt_right:
+        # 중심은 좌/우 평균으로 잡아야 함
+        center_x = (pt_left[0] + pt_right[0]) * 0.5
+        center_y = (pt_left[1] + pt_right[1]) * 0.5
+
+        # 폭은 좌우 거리 기준, clamp는 유지
+        path_width = float(np.clip(abs(pt_right[0] - pt_left[0]), 60.0, 400.0))
+
+        # 중심 필터
+        pt_x, pt_y = _filter_pt(0, (center_x, center_y), alpha=0.2)
+
+        rect_x_min = self._rect.x
+        rect_x_max = self._rect.x + self._rect.width
+        rect_y_min = self._rect.y
+        rect_y_max = self._rect.y + self._rect.height
+
+        half_w = path_width * 0.5
+        rect_h = path_width * 0.8
+
+        left = float(np.clip(pt_x - half_w, rect_x_min, rect_x_max))
+        right = float(np.clip(pt_x + half_w, rect_x_min, rect_x_max))
+        bottom_y = float(np.clip(pt_y, rect_y_min, rect_y_max))
+        top = float(np.clip(pt_y - rect_h, rect_y_min, rect_y_max))
+
+        if not bool(lead_one.radar):
+          c = rl.Color(0, 120, 255, 255)   # BLUE
+        else:
+          track_id = int(getattr(lead_one, "radarTrackId", 0))
+          if track_id in (0, 1):
+            c = rl.Color(201, 34, 49, 255) # RED
+          else:
+            c = rl.Color(255, 115, 0, 255) # ORANGE
+
+        self._lead_vehicles[0] = LeadVehicle(
+          rect=[(left, top), (right, top), (right, bottom_y), (left, bottom_y)],
+          color=c,
+        )
+      else:
+        self._lead_pt_filt[0] = None
+        
   def _update_model(self, lead, path_x_array):
     """Update model visualization data based on model message"""
     max_distance = np.clip(path_x_array[-1], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
@@ -284,7 +377,7 @@ class ModelRenderer(Widget):
   def _get_ll_color(self, prob: float, adjacent: bool, left: bool):
     alpha = np.clip(prob, 0.0, 0.7)
     if adjacent:
-      _base_color = LANE_LINE_COLORS.get(ui_state.status, LANE_LINE_COLORS[UIStatus.DISENGAGED])
+      _base_color = LANE_LINE_COLORS.get(ui_state.status, LANE_LINE_COLORS[UIStatus.DISENGAGED if not ui_state.lat_active else UIStatus.ENGAGED])
       color = rl.Color(_base_color.r, _base_color.g, _base_color.b, int(alpha * 255))
 
       # turn adjacent lls orange if torque is high
@@ -299,7 +392,7 @@ class ModelRenderer(Widget):
     else:
       color = rl.Color(255, 255, 255, int(alpha * 255))
 
-    if ui_state.status == UIStatus.DISENGAGED:
+    if ui_state.status == UIStatus.DISENGAGED and not ui_state.lat_active:
       color = rl.Color(0, 0, 0, int(alpha * 255))
 
     return color
@@ -354,7 +447,7 @@ class ModelRenderer(Widget):
       else:
         draw_polygon(self._rect, self._path.projected_points, gradient=gradient)
 
-  def _draw_lead_indicator(self):
+  def _draw_lead_indicator_old(self):
     # Draw lead vehicles if available
     for lead in self._lead_vehicles:
       if not lead.glow or not lead.chevron:
@@ -363,6 +456,22 @@ class ModelRenderer(Widget):
       rl.draw_triangle_fan(lead.glow, len(lead.glow), rl.Color(218, 202, 37, 255))
       rl.draw_triangle_fan(lead.chevron, len(lead.chevron), rl.Color(201, 34, 49, lead.fill_alpha))
 
+  def _draw_lead_indicator(self):
+    # Carrot: draw outline rectangles only (no fill)
+    thickness = 4.0  # 원하는 두께 (float)
+
+    for lead in self._lead_vehicles:
+      if not lead.rect or lead.color is None:
+        continue
+
+      pts = lead.rect
+      c = lead.color
+
+      rl.draw_line_ex(pts[0], pts[1], thickness, c)
+      rl.draw_line_ex(pts[1], pts[2], thickness, c)
+      rl.draw_line_ex(pts[2], pts[3], thickness, c)
+      rl.draw_line_ex(pts[3], pts[0], thickness, c)
+    
   @staticmethod
   def _get_path_length_idx(pos_x_array: np.ndarray, path_height: float) -> int:
     """Get the index corresponding to the given path height"""
@@ -477,3 +586,142 @@ class ModelRenderer(Widget):
       int(inv_t * start.b + t * end.b),
       int(inv_t * start.a + t * end.a)
     ) for start, end in zip(begin_colors, end_colors, strict=True)]
+
+  def _get_radar_info_color(self, lead, v_sum: float):
+    radar = bool(getattr(lead, "radar", False))
+    model_prob = float(getattr(lead, "modelProb", 0.0))
+
+    if not radar:
+      return rl.Color(0, 120, 255, 220)      # BLUE
+    elif abs(model_prob - 0.01) < 0.001:
+      return rl.Color(0, 200, 80, 220)       # GREEN
+    elif v_sum > 0.0:
+      return rl.Color(255, 190, 0, 220)      # ORANGE
+    else:
+      return rl.Color(255, 70, 70, 220)      # RED
+
+  def _update_radar_info(self, radar_state, path_x_array):
+    self._radar_info_items = []
+
+    if self._lane_lines[2].raw_points.shape[0] == 0:
+      return
+
+    leads_groups = [
+      radar_state.leadsLeft,
+      radar_state.leadsRight,
+      radar_state.leadsCenter,
+    ]
+
+    rect_x_min = self._rect.x
+    rect_x_max = self._rect.x + self._rect.width
+    rect_y_min = self._rect.y
+    rect_y_max = self._rect.y + self._rect.height
+
+    for leads in leads_groups:
+      for l in leads:
+        d_rel = float(getattr(l, "dRel", 0.0))
+        y_rel = float(getattr(l, "yRel", 0.0))
+
+        if d_rel <= 2.5:
+          continue
+
+        idx = self._get_path_length_idx(self._lane_lines[2].raw_points[:, 0], d_rel)
+        if idx >= len(self._lane_lines[2].raw_points):
+          continue
+
+        lane_z = float(self._lane_lines[2].raw_points[idx, 2]) - 0.61
+        pt = self._map_to_screen(d_rel, -y_rel, lane_z)
+        if not pt:
+          continue
+
+        x, y = float(pt[0]), float(pt[1])
+
+        v = float(getattr(l, "vLeadK", 0.0))
+        v_lat = float(getattr(l, "vLat", 0.0))
+        v_abs = float(np.sqrt(v * v + v_lat * v_lat))
+        v_sum = v_abs if v >= 0.0 else -v_abs
+
+        # 정지는 기존처럼 "*"
+        if v_abs <= 3.0:
+          self._radar_info_items.append(
+            RadarInfoItem(
+              x=x,
+              y=y,
+              w=18.0,
+              h=18.0,
+              text="*",
+              color=rl.Color(255, 255, 255, 230),
+              is_star=True,
+            )
+          )
+          continue
+
+        speed_val = v_sum * (3.6 if ui_state.is_metric else 2.2369363)
+        text = f"{speed_val:.0f}"
+
+        font_size = 22
+        pad_x = 6
+        pad_y = 2
+
+        text_w = rl.measure_text(text, font_size)
+        box_w = float(text_w + pad_x * 2)
+        box_h = float(font_size + pad_y * 2)
+
+        box_x = float(np.clip(x - box_w * 0.5, rect_x_min, rect_x_max - box_w))
+        box_y = float(np.clip(y - box_h * 0.5, rect_y_min, rect_y_max - box_h))
+
+        color = self._get_radar_info_color(l, v_sum)
+
+        self._radar_info_items.append(
+          RadarInfoItem(
+            x=box_x,
+            y=box_y,
+            w=float(box_w),
+            h=float(box_h),
+            text=text,
+            color=color,
+            is_star=False,
+          )
+        )
+
+
+  def _draw_radar_info(self):
+    if not self._radar_info_items:
+      return
+
+    font_size = 22
+
+    for item in self._radar_info_items:
+      if item.color is None:
+        continue
+
+      if item.is_star:
+        tw = rl.measure_text(item.text, font_size)
+        draw_text_ui_style(item.text, item.x, item.y, font_size, item.color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="center", y_offset=0.0)
+        continue
+
+      # 박스
+      rl.draw_rectangle_rounded(
+        rl.Rectangle(item.x, item.y, item.w, item.h),
+        0.28,
+        8,
+        item.color,
+      )
+
+      # 텍스트 중앙정렬
+      tw = rl.measure_text(item.text, font_size)
+      tx = int(item.x + (item.w - tw) / 2)
+      ty = int(item.y + (item.h - font_size) / 2 - 1)
+
+      #rl.draw_text(
+      #  item.text,
+      #  tx,
+      #  ty,
+      #  font_size,
+      #  rl.WHITE,
+      #)
+
+      draw_text_ui_style(item.text, tx, ty, font_size, rl.WHITE, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
+
+
+
