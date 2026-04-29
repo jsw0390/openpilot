@@ -546,8 +546,13 @@ class VCruiseCarrot:
         #self.events.append(EventName.personalityChanged)
       elif button_type == ButtonType.lfaButton:
         if self._lfa_button_mode == 0:
+          was_lat_enabled = self._lat_enabled
           self._lat_enabled = not self._lat_enabled
-          self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
+          self._add_log("Lateral " + ("enabled" if self._lat_enabled else "disabled"))
+          if self._lat_enabled and not was_lat_enabled:
+            self._activate_cruise = 1
+            self._cruise_ready = False
+            self._add_log("Cruise on (lfaButton)")
         elif self._lfa_button_mode == 2:
           self.carrot_cruise_active = True
         else:
