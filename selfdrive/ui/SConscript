@@ -2,18 +2,23 @@ import os
 import json
 Import('qt_env', 'arch', 'common', 'messaging', 'visionipc', 'transformations')
 
-# ThorVG source files (CPU engine only, no GL/WG) — v1.0.4
+# ThorVG v1.0.4 소스 — 공식 meson.build 기반 정확한 파일 목록
+# common (src/common/meson.build)
+# renderer (src/renderer/meson.build) — tvgLoader.cpp는 공식 빌드에 미포함
+# cpu_engine (src/renderer/cpu_engine/meson.build)
+# loaders/raw (src/loaders/raw/meson.build)
 thorvg_src = [
+  # common
   "#third_party/thorvg/src/common/tvgColor.cpp",
   "#third_party/thorvg/src/common/tvgCompressor.cpp",
   "#third_party/thorvg/src/common/tvgMath.cpp",
   "#third_party/thorvg/src/common/tvgStr.cpp",
+  # renderer
   "#third_party/thorvg/src/renderer/tvgAccessor.cpp",
   "#third_party/thorvg/src/renderer/tvgAnimation.cpp",
   "#third_party/thorvg/src/renderer/tvgCanvas.cpp",
   "#third_party/thorvg/src/renderer/tvgFill.cpp",
   "#third_party/thorvg/src/renderer/tvgInitializer.cpp",
-  "#third_party/thorvg/src/renderer/tvgLoader.cpp",
   "#third_party/thorvg/src/renderer/tvgLoaderMgr.cpp",
   "#third_party/thorvg/src/renderer/tvgPaint.cpp",
   "#third_party/thorvg/src/renderer/tvgPicture.cpp",
@@ -23,6 +28,7 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/tvgShape.cpp",
   "#third_party/thorvg/src/renderer/tvgTaskScheduler.cpp",
   "#third_party/thorvg/src/renderer/tvgText.cpp",
+  # cpu_engine
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwFill.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwImage.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwMath.cpp",
@@ -33,6 +39,7 @@ thorvg_src = [
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwRle.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwShape.cpp",
   "#third_party/thorvg/src/renderer/cpu_engine/tvgSwStroke.cpp",
+  # loaders/raw
   "#third_party/thorvg/src/loaders/raw/tvgRawLoader.cpp",
 ]
 

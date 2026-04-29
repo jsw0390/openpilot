@@ -5,7 +5,11 @@
 #define THORVG_CONFIG_H
 
 // 엔진 활성화
-#define THORVG_SW_RASTER_SUPPORT    // SW(CPU) 래스터라이저 사용
+#define THORVG_SW_RASTER_SUPPORT
+
+// 파일 I/O (tvgLoaderMgr.cpp에서 필요)
+// 비활성화: 파일 로딩 불필요 (도형만 사용)
+// #define THORVG_FILE_IO_SUPPORT
 
 // 비활성화 (불필요한 로더/기능)
 // #define THORVG_GL_RASTER_SUPPORT
