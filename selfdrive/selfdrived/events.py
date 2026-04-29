@@ -643,7 +643,7 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
       "Take Control",
       "Turn Exceeds Steering Limit",
       AlertStatus.normal, AlertSize.small,
-      Priority.LOW, VisualAlert.none, AudibleAlert.none, 1.),
+      Priority.LOW, VisualAlert.none, AudibleAlert.warningSoft, 1.),
   },
 
   # Thrown when the fan is driven at >50% but is not rotating
