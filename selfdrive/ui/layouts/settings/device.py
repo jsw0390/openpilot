@@ -44,7 +44,7 @@ class DeviceLayout(Widget):
   def _initialize_items(self):
     self._pair_device_btn = button_item(lambda: tr("Pair Device"), lambda: tr("PAIR"), lambda: tr(DESCRIPTIONS['pair_device']),
                                         callback=lambda: gui_app.push_widget(PairingDialog()))
-    self._pair_device_btn.set_visible(lambda: not ui_state.prime_state.is_paired())
+    self._pair_device_btn.set_visible(lambda: self._params.get_int("EnableConnect") == 3 or not ui_state.prime_state.is_paired())
 
     self._reset_calib_btn = button_item(lambda: tr("Reset Calibration"), lambda: tr("RESET"), lambda: tr(DESCRIPTIONS['reset_calibration']),
                                         callback=self._reset_calibration_prompt)

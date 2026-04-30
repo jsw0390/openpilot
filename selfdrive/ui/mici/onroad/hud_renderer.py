@@ -261,9 +261,6 @@ class HudRenderer(Widget):
     if self._show_wheel_critical:
       self._wheel_alpha_filter.update(255)
       self._wheel_y_filter.update(0)
-    elif ui_state.status == UIStatus.DISENGAGED and not ui_state.lat_active:
-      self._wheel_alpha_filter.update(0)
-      self._wheel_y_filter.update(wheel_txt.height / 2)
     else:
       self._wheel_alpha_filter.update(255 * 0.9)
       self._wheel_y_filter.update(0)
@@ -858,4 +855,3 @@ class HudRenderer(Widget):
     draw_text_ui_style(remain, text_x, text_y, remain_font, rl.Color(255, 255, 255, 235), font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
 
     return True
-

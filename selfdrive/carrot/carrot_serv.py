@@ -217,19 +217,20 @@ class CarrotServ:
     self.is_metric = self.params.get_bool("IsMetric")
     self.autoRoadSpeedLimitOffset = self.params.get_int("AutoRoadSpeedLimitOffset")
 
-    # 读取语言设置：优先使用 LanguageSetting，与 UI 保持一致；回退读取可能存在的 "lang"
+    # Keep service language in sync with the UI language setting.
     try:
       lang_val = self.params.get('LanguageSetting') or self.params.get('lang')
     except Exception:
       lang_val = None
     if isinstance(lang_val, bytes):
       try:
-        lang_val = lang_val
+        lang_val = lang_val.decode("utf-8", errors="ignore")
       except Exception:
         lang_val = None
-    if lang_val == "main_ko":
+    lang_val = (lang_val or "en").removeprefix("main_")
+    if lang_val == "ko":
       self.lang = "ko"
-    elif lang_val == "main_zh-CHS":
+    elif lang_val == "zh-CHS":
       self.lang = "zh"
     else:
       self.lang = "en"

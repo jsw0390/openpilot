@@ -22,6 +22,7 @@ from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
+from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 
 from openpilot.system.hardware import HARDWARE
 from openpilot.system.version import get_build_metadata
@@ -42,6 +43,12 @@ ButtonType = car.CarState.ButtonEvent.Type
 SafetyModel = car.CarParams.SafetyModel
 
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
+STEER_TORQUE_SATURATION_THRESHOLD = 1e-2
+STEER_LIMIT_ALERT_MIN_SPEED = 1.0
+STEER_LIMIT_ALERT_MIN_LAT_ACCEL = 1.0
+STEER_LIMIT_ALERT_UNDERSHOOT_RATIO = 1.2
+STEER_LIMIT_ALERT_MODEL_FACTOR = 0.95
+STEER_LIMIT_ALERT_COOLDOWN = 6.0
 
 
 class SelfdriveD:
@@ -121,6 +128,7 @@ class SelfdriveD:
     self.mismatch_counter = 0
     self.cruise_mismatch_counter = 0
     self.last_steering_pressed_frame = 0
+    self.last_steer_saturated_alert_frame = -int(STEER_LIMIT_ALERT_COOLDOWN / DT_CTRL)
     self.distance_traveled = 0
     self.last_functional_fan_frame = 0
     self.events_prev = []
@@ -399,22 +407,25 @@ class SelfdriveD:
     recent_steer_pressed = (self.sm.frame - self.last_steering_pressed_frame)*DT_CTRL < 2.0
     controlstate = self.sm['controlsState']
     lac = getattr(controlstate.lateralControlState, controlstate.lateralControlState.which())
+    clipped_speed = max(CS.vEgo, MIN_LATERAL_CONTROL_SPEED)
+    actual_lateral_accel = controlstate.curvature * (clipped_speed**2)
+    desired_lateral_accel = self.sm['modelV2'].action.desiredCurvature * (clipped_speed**2)
+    steer_saturated = False
     if lac.active and not recent_steer_pressed and not self.CP.notCar:
-      clipped_speed = max(CS.vEgo, 0.3)
-      actual_lateral_accel = controlstate.curvature * (clipped_speed**2)
-      desired_lateral_accel = self.sm['modelV2'].action.desiredCurvature * (clipped_speed**2)
-      undershooting = abs(desired_lateral_accel) / abs(1e-3 + actual_lateral_accel) > 1.2
-      turning = abs(desired_lateral_accel) > 1.0
+      undershooting = abs(desired_lateral_accel) / abs(1e-3 + actual_lateral_accel) > STEER_LIMIT_ALERT_UNDERSHOOT_RATIO
+      turning = abs(desired_lateral_accel) > STEER_LIMIT_ALERT_MIN_LAT_ACCEL
       # TODO: lac.saturated includes speed and other checks, should be pulled out
-      if undershooting and turning and lac.saturated:
-        self.events.add(EventName.steerSaturated)
+      steer_saturated = undershooting and turning and (lac.saturated or self._steering_command_limited())
 
     # Model-based curve limit warning (works without engagement)
-    if self.steer_saturated_sound and not self.CP.notCar and CS.vEgo > 1.0:
-      clipped_speed = max(CS.vEgo, 0.3)
-      model_lat_accel = abs(self.sm['modelV2'].action.desiredCurvature * (clipped_speed**2))
-      if model_lat_accel > self.CP.maxLateralAccel * 0.85:
-        self.events.add(EventName.steerSaturated)
+    if not self.CP.notCar and CS.vEgo > STEER_LIMIT_ALERT_MIN_SPEED:
+      model_lat_accel = abs(desired_lateral_accel)
+      steer_saturated = steer_saturated or model_lat_accel > self.CP.maxLateralAccel * STEER_LIMIT_ALERT_MODEL_FACTOR
+
+    steer_saturated_alert_ready = (self.sm.frame - self.last_steer_saturated_alert_frame) * DT_CTRL > STEER_LIMIT_ALERT_COOLDOWN
+    if steer_saturated and steer_saturated_alert_ready:
+      self.last_steer_saturated_alert_frame = self.sm.frame
+      self.events.add(EventName.steerSaturated)
 
     # Check for FCW
     stock_long_is_braking = self.enabled and not self.CP.openpilotLongitudinalControl and CS.aEgo < -1.25
@@ -554,6 +565,26 @@ class SelfdriveD:
     except (ValueError, TypeError):
       return log.LongitudinalPersonality.standard
 
+  def _steering_command_limited(self) -> bool:
+    if not (self.sm.valid.get('carControl', False) and self.sm.valid.get('carOutput', False)):
+      return False
+
+    requested_actuators = self.sm['carControl'].actuators
+    applied_actuators = self.sm['carOutput'].actuatorsOutput
+    if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+      angle_error = abs(requested_actuators.steeringAngleDeg - applied_actuators.steeringAngleDeg)
+      return angle_error > STEER_ANGLE_SATURATION_THRESHOLD
+
+    return abs(requested_actuators.torque - applied_actuators.torque) > STEER_TORQUE_SATURATION_THRESHOLD
+
+  def _steer_saturated_alert(self) -> Alert:
+    sound = AudibleAlert.prompt if self.steer_saturated_sound else AudibleAlert.none
+    return Alert(
+      "Take Control",
+      "Turn Exceeds Steering Limit",
+      AlertStatus.userPrompt, AlertSize.mid,
+      AlertPriority.MID, VisualAlert.steerRequired, sound, 1.5)
+
   def _get_steer_saturated_sound(self) -> bool:
     try:
       return self.params.get_bool("SteerSaturatedSound")
@@ -563,13 +594,9 @@ class SelfdriveD:
   def _update_steer_saturated_event(self):
     from cereal import log as _log
     _EventName = _log.OnroadEvent.EventName
-    sound = AudibleAlert.promptRepeat if self.steer_saturated_sound else AudibleAlert.none
     EVENTS[_EventName.steerSaturated] = {
-      ET.WARNING: Alert(
-        "Take Control",
-        "Turn Exceeds Steering Limit",
-        AlertStatus.normal, AlertSize.small,
-        AlertPriority.LOW, VisualAlert.none, sound, 1.),
+      ET.PERMANENT: self._steer_saturated_alert(),
+      ET.WARNING: self._steer_saturated_alert(),
     }
 
   def params_thread(self, evt):

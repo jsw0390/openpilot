@@ -35,7 +35,8 @@ class PairingDialog(Widget):
     except Exception:
       cloudlog.exception("Failed to get pairing token")
       token = ""
-    return f"https://connect.comma.ai/?pair={token}"
+    host = "https://stable.konik.ai" if self.params.get_int("EnableConnect") == 3 else "https://connect.comma.ai"
+    return f"{host}/?pair={token}"
 
   def _generate_qr_code(self) -> None:
     try:
@@ -68,7 +69,7 @@ class PairingDialog(Widget):
       self.last_qr_generation = current_time
 
   def _update_state(self):
-    if ui_state.prime_state.is_paired():
+    if ui_state.prime_state.is_paired() and self.params.get_int("EnableConnect") != 3:
       gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
@@ -114,9 +115,9 @@ class PairingDialog(Widget):
 
   def _render_instructions(self, rect: rl.Rectangle) -> None:
     instructions = [
-      tr("Go to https://connect.comma.ai on your phone"),
+      tr("Go to https://stable.konik.ai on your phone") if self.params.get_int("EnableConnect") == 3 else tr("Go to https://connect.comma.ai on your phone"),
       tr("Click \"add new device\" and scan the QR code on the right"),
-      tr("Bookmark connect.comma.ai to your home screen to use it like an app"),
+      tr("Bookmark stable.konik.ai to your home screen to use it like an app") if self.params.get_int("EnableConnect") == 3 else tr("Bookmark connect.comma.ai to your home screen to use it like an app"),
     ]
 
     font = gui_app.font(FontWeight.BOLD)

@@ -89,8 +89,14 @@ DEFAULT_TEXT_SIZE = 60
 DEFAULT_TEXT_COLOR = rl.Color(255, 255, 255, int(255 * 0.9))
 
 # Qt draws fonts accounting for ascent/descent differently, so compensate to match old styles
-# The real scales for the fonts below range from 1.212 to 1.266
-FONT_SCALE = 1.242 if BIG_UI else 1.16
+# The real scales for the fonts below range from 1.212 to 1.266.
+# Korean uses a bolder fallback font, so trim the visual scale to keep UI text
+# closer to the English layout density.
+BASE_FONT_SCALE = 1.242 if BIG_UI else 1.16
+LANGUAGE_FONT_SCALE = {
+  "ko": 0.90,
+}.get(multilang.language, 1.0)
+FONT_SCALE = BASE_FONT_SCALE * LANGUAGE_FONT_SCALE
 
 ASSETS_DIR = files("openpilot.selfdrive").joinpath("assets")
 FONT_DIR = ASSETS_DIR.joinpath("fonts")

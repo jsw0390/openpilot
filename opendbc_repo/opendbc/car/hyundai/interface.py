@@ -161,10 +161,16 @@ class CarInterface(CarInterfaceBase):
       params.put_int("LatMpcPathCost", 230)    # Path cost
       params.put_int("LatMpcInputOffset", 6)   # Input offset
       # Lateral torque tuning
+      params.put_int("LateralTorqueAccelFactor", 2500) # Lateral accel factor
+      params.put_int("LateralTorqueFriction", 70)      # Friction compensation
       params.put_int("LateralTorqueKpV", 85)   # Proportional gain
+      params.put_int("LateralTorqueKiV", 8)    # Integral gain
       params.put_int("LateralTorqueKd", 20)    # Derivative gain
       params.put_int("LateralTorqueKf", 85)    # Feed-forward gain
       params.put_int("LateralTorqueCustom", 1) # Enable custom torque
+      params.put_int("CustomSteerMax", 400)    # Max steering torque command
+      params.put_int("CustomSR", 0)            # Use live steer ratio
+      params.put_int("SteerRatioRate", 100)    # Live steer ratio scale
       print("$$$ Default settings applied to Kia Ray EV")
 
     ret.centerToFront = ret.wheelbase * 0.4

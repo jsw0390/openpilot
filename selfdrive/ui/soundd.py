@@ -119,7 +119,7 @@ class Soundd:
     self.soundVolumeAdjust = 1.0
     self.carrot_count_down = 0
 
-    self.lang = self.params.get('LanguageSetting')
+    self.lang = self._normalized_language()
     self.load_sounds()
 
     self.current_alert = AudibleAlert.none
@@ -130,6 +130,12 @@ class Soundd:
 
     self.spl_filter_weighted = FirstOrderFilter(0, 2.5, FILTER_DT, initialized=False)
 
+  def _normalized_language(self):
+    lang = self.params.get('LanguageSetting')
+    if isinstance(lang, bytes):
+      lang = lang.decode("utf-8", errors="ignore")
+    return (lang or "en").removeprefix("main_")
+
   def load_sounds(self):
     self.loaded_sounds: dict[int, np.ndarray] = {}
 
@@ -137,9 +143,9 @@ class Soundd:
     for sound in sound_list:
       filename, play_count, volume = sound_list[sound]
 
-      if self.lang == "main_ko":
+      if self.lang == "ko":
         wavefile = wave.open(BASEDIR + "/selfdrive/assets/sounds/" + filename, 'r')
-      elif self.lang == "main_zh-CHS":
+      elif self.lang == "zh-CHS":
         wavefile = wave.open(BASEDIR + "/selfdrive/assets/sounds_chs/" + filename, 'r')
       else:
         wavefile = wave.open(BASEDIR + "/selfdrive/assets/sounds_eng/" + filename, 'r')
