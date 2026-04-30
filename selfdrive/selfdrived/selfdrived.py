@@ -409,6 +409,13 @@ class SelfdriveD:
       if undershooting and turning and lac.saturated:
         self.events.add(EventName.steerSaturated)
 
+    # Model-based curve limit warning (works without engagement)
+    if self.steer_saturated_sound and not self.CP.notCar and CS.vEgo > 1.0:
+      clipped_speed = max(CS.vEgo, 0.3)
+      model_lat_accel = abs(self.sm['modelV2'].action.desiredCurvature * (clipped_speed**2))
+      if model_lat_accel > self.CP.maxLateralAccel * 0.85:
+        self.events.add(EventName.steerSaturated)
+
     # Check for FCW
     stock_long_is_braking = self.enabled and not self.CP.openpilotLongitudinalControl and CS.aEgo < -1.25
     model_fcw = self.sm['modelV2'].meta.hardBrakePredicted and not CS.brakePressed and not stock_long_is_braking
