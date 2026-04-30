@@ -16,7 +16,8 @@ from openpilot.common.gps import get_gps_location_service
 
 from openpilot.selfdrive.car.car_specific import CarSpecificEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.selfdrived.events import Events, ET
+from openpilot.selfdrive.selfdrived.events import Events, ET, EVENTS, Alert, AlertStatus, AlertSize, Priority, VisualAlert, AudibleAlert
+from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
@@ -99,6 +100,8 @@ class SelfdriveD:
     # read params
     self.is_metric = self.params.get_bool("IsMetric")
     self.is_ldw_enabled = self.params.get_bool("IsLdwEnabled")
+    self.steer_saturated_sound = self._get_steer_saturated_sound()
+    self._update_steer_saturated_event()
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -544,11 +547,33 @@ class SelfdriveD:
     except (ValueError, TypeError):
       return log.LongitudinalPersonality.standard
 
+  def _get_steer_saturated_sound(self) -> bool:
+    try:
+      return self.params.get_bool("SteerSaturatedSound")
+    except UnknownKeyName:
+      return True
+
+  def _update_steer_saturated_event(self):
+    from cereal import log as _log
+    _EventName = _log.OnroadEvent.EventName
+    sound = AudibleAlert.promptRepeat if self.steer_saturated_sound else AudibleAlert.none
+    EVENTS[_EventName.steerSaturated] = {
+      ET.WARNING: Alert(
+        "Take Control",
+        "Turn Exceeds Steering Limit",
+        AlertStatus.normal, AlertSize.small,
+        Priority.LOW, VisualAlert.none, sound, 1.),
+    }
+
   def params_thread(self, evt):
     while not evt.is_set():
       self.is_metric = self.params.get_bool("IsMetric")
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
       self.personality = self.read_personality_param()
+      new_sound = self._get_steer_saturated_sound()
+      if new_sound != self.steer_saturated_sound:
+        self.steer_saturated_sound = new_sound
+        self._update_steer_saturated_event()
       time.sleep(0.1)
 
   def run(self):
