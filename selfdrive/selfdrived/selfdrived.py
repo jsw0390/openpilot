@@ -16,7 +16,7 @@ from openpilot.common.gps import get_gps_location_service
 
 from openpilot.selfdrive.car.car_specific import CarSpecificEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.selfdrived.events import Events, ET, EVENTS, Alert, AlertStatus, AlertSize, Priority, VisualAlert, AudibleAlert
+from openpilot.selfdrive.selfdrived.events import Events, ET, EVENTS, Alert, AlertStatus, AlertSize, Priority as AlertPriority, VisualAlert, AudibleAlert
 from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
@@ -562,7 +562,7 @@ class SelfdriveD:
         "Take Control",
         "Turn Exceeds Steering Limit",
         AlertStatus.normal, AlertSize.small,
-        Priority.LOW, VisualAlert.none, sound, 1.),
+        AlertPriority.LOW, VisualAlert.none, sound, 1.),
     }
 
   def params_thread(self, evt):
