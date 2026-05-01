@@ -39,11 +39,11 @@ class PairingDialog(NavWidget):
 
   def _generate_qr_code(self) -> None:
     try:
-      qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=0)
+      qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
       qr.add_data(self._get_pairing_url())
       qr.make(fit=True)
 
-      pil_img = qr.make_image(fill_color="white", back_color="black").convert('RGBA')
+      pil_img = qr.make_image(fill_color="black", back_color="white").convert('RGBA')
       img_array = np.array(pil_img, dtype=np.uint8)
 
       if self._qr_texture and self._qr_texture.id != 0:
