@@ -14,8 +14,9 @@ from openpilot.selfdrive.ui.mici.widgets.pairing_dialog import PairingDialog
 from openpilot.selfdrive.ui.mici.onroad.driver_camera_dialog import DriverCameraDialog
 from openpilot.selfdrive.ui.mici.layouts.onboarding import TrainingGuide, TermsPage
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
-from openpilot.system.ui.lib.multilang import tr
-from openpilot.system.ui.widgets import Widget
+from openpilot.system.ui.lib.multilang import multilang, tr
+from openpilot.system.ui.widgets import DialogResult, Widget
+from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.widgets.html_render import HtmlModal, HtmlRenderer
@@ -294,6 +295,7 @@ class DeviceLayoutMici(NavScroller):
     super().__init__()
 
     self._fcc_dialog: HtmlModal | None = None
+    self._select_language_dialog: MultiOptionDialog | None = None
 
     def power_off_callback():
       ui_state.params.put_bool("DoShutdown", True)
@@ -341,10 +343,14 @@ class DeviceLayoutMici(NavScroller):
     terms_btn = BigButton("terms &\nconditions", "", gui_app.texture("icons_mici/settings/device/info.png", 64, 64))
     terms_btn.set_click_callback(lambda: gui_app.push_widget(ReviewTermsPage()))
 
+    self._language_btn = BigButton("language", self._current_language_name())
+    self._language_btn.set_click_callback(self._show_language_dialog)
+
     self._scroller.add_widgets([
       DeviceInfoLayoutMici(),
       UpdateOpenpilotBigButton(),
       PairBigButton(),
+      self._language_btn,
       review_training_guide_btn,
       driver_cam_btn,
       terms_btn,
@@ -359,3 +365,19 @@ class DeviceLayoutMici(NavScroller):
     if not self._fcc_dialog:
       self._fcc_dialog = MiciFccModal(os.path.join(BASEDIR, "selfdrive/assets/offroad/mici_fcc.html"))
     gui_app.push_widget(self._fcc_dialog)
+
+  def _current_language_name(self):
+    return multilang.codes.get(multilang.language, multilang.language)
+
+  def _show_language_dialog(self):
+    def handle_language_selection(result: DialogResult):
+      if result == DialogResult.CONFIRM and self._select_language_dialog:
+        selected_language = multilang.languages[self._select_language_dialog.selection]
+        multilang.change_language(selected_language)
+        self._language_btn.set_value(self._current_language_name())
+      self._select_language_dialog = None
+
+    self._select_language_dialog = MultiOptionDialog(tr("Select a language"), multilang.languages,
+                                                     self._current_language_name(), option_font_weight=FontWeight.DISPLAY,
+                                                     callback=handle_language_selection)
+    gui_app.push_widget(self._select_language_dialog)
