@@ -10,6 +10,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.common.filter_simple import BounceFilter, FirstOrderFilter
 from openpilot.system.hardware import TICI
 from openpilot.system.ui.lib.application import gui_app, FontWeight
+from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 
@@ -65,22 +66,22 @@ class Alert:
 
 # Pre-defined alert instances
 ALERT_STARTUP_PENDING = Alert(
-  text1="openpilot Unavailable",
-  text2="Waiting to start",
+  text1=tr("openpilot Unavailable"),
+  text2=tr("Waiting to start"),
   size=AlertSize.mid,
   status=AlertStatus.normal,
 )
 
 ALERT_CRITICAL_TIMEOUT = Alert(
-  text1="TAKE CONTROL IMMEDIATELY",
-  text2="System Unresponsive",
+  text1=tr("TAKE CONTROL IMMEDIATELY"),
+  text2=tr("System Unresponsive"),
   size=AlertSize.full,
   status=AlertStatus.critical,
 )
 
 ALERT_CRITICAL_REBOOT = Alert(
-  text1="System Unresponsive",
-  text2="Reboot Device",
+  text1=tr("System Unresponsive"),
+  text2=tr("Reboot Device"),
   size=AlertSize.full,
   status=AlertStatus.critical,
 )
@@ -143,7 +144,7 @@ class AlertRenderer(Widget):
       return None
 
     # Return current alert
-    ret = Alert(text1=ss.alertText1, text2=ss.alertText2, size=ss.alertSize.raw, status=ss.alertStatus.raw,
+    ret = Alert(text1=tr(ss.alertText1), text2=tr(ss.alertText2), size=ss.alertSize.raw, status=ss.alertStatus.raw,
                 visual_alert=ss.alertHudVisual, alert_type=ss.alertType)
     self._prev_alert = ret
     return ret
@@ -300,7 +301,7 @@ class AlertRenderer(Widget):
     icon_side = alert_layout.icon.side if alert_layout.icon is not None else None
 
     # TODO: hack
-    alert_text1 = alert.text1.lower().replace('calibrating: ', 'calibrating:\n')
+    alert_text1 = self._format_alert_text(alert.text1).replace('calibrating: ', 'calibrating:\n')
     can_draw_second_line = False
     # TODO: there should be a common way to determine font size based on text length to maximize rect
     if len(alert_text1) <= 12:
@@ -330,7 +331,7 @@ class AlertRenderer(Widget):
     self._alert_text1_label.set_alignment(rl.GuiTextAlignment.TEXT_ALIGN_LEFT if icon_side != 'left' else rl.GuiTextAlignment.TEXT_ALIGN_RIGHT)
     self._alert_text1_label.render(text_rect1)
 
-    alert_text2 = alert.text2.lower()
+    alert_text2 = self._format_alert_text(alert.text2)
 
     #print(f"Alert: {alert.text1} | {alert.text2} | {alert.size} | {alert.status} | {alert.visual_alert} | {alert.alert_type}")
 
@@ -363,3 +364,9 @@ class AlertRenderer(Widget):
       self._alert_text2_label.set_font_size(small_font_size)
       self._alert_text2_label.set_alignment(rl.GuiTextAlignment.TEXT_ALIGN_LEFT if icon_side != 'left' else rl.GuiTextAlignment.TEXT_ALIGN_RIGHT)
       self._alert_text2_label.render(text_rect2)
+
+  @staticmethod
+  def _format_alert_text(text: str) -> str:
+    if any(ord(ch) > 127 for ch in text):
+      return text
+    return text.lower()
