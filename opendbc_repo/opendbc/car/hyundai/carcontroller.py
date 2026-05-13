@@ -136,6 +136,8 @@ class CarController(CarControllerBase):
     self.button_spam1 = 8
     self.button_spam2 = 30
     self.button_spam3 = 1
+    self.ray_ev_cruise_enabled_last = False
+    self.ray_ev_estimated_cruise_speed = 0
 
     self.apply_angle_last = 0
     self.lkas_max_torque = 0
@@ -417,7 +419,7 @@ class CarController(CarControllerBase):
                                                     left_lane_warning, right_lane_warning, self.is_ldws_car))
         self.lkas11_active = True
 
-      if not self.CP.openpilotLongitudinalControl:
+      if not self.CP.openpilotLongitudinalControl or self.CP.carFingerprint == CAR.KIA_RAY_EV:
         can_sends.extend(self.create_button_messages(CC, CS, use_clu11=True))
       if self.CP.carFingerprint in CAN_GEARS["send_mdps12"] and CS.mdps12 is not None:  # send mdps12 to LKAS to prevent LKAS error
         can_sends.append(hyundaican.create_mdps12(self.packer, self.frame, CS.mdps12))
@@ -571,10 +573,24 @@ class CarController(CarControllerBase):
     target = int(set_speed_in_units+0.5)
     current = int(CS.out.cruiseState.speed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH) + 0.5)
     v_ego_kph = CS.out.vEgo * CV.MS_TO_KPH
+    is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
+    ray_ev_using_estimate = False
+
+    if is_ray_ev:
+      if not CS.out.cruiseState.enabled:
+        self.ray_ev_cruise_enabled_last = False
+        self.ray_ev_estimated_cruise_speed = 0
+      elif not self.ray_ev_cruise_enabled_last or self.ray_ev_estimated_cruise_speed <= 0:
+        self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+
+      if CS.out.cruiseState.enabled and current <= 0:
+        ray_ev_using_estimate = True
+        current = self.ray_ev_estimated_cruise_speed
+
+      self.ray_ev_cruise_enabled_last = CS.out.cruiseState.enabled
 
     send_button = 0
     activate_cruise = False
-    is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
     resume_button = Buttons.RES_ACCEL
 
     if CC.enabled:
@@ -627,6 +643,11 @@ class CarController(CarControllerBase):
 
     if send_button_allowed or activate_cruise or (CC.cruiseControl.resume and self.frame % 2 == 0):
       self.button_spamming_count = self.button_spamming_count + 1 if send_button == Buttons.RES_ACCEL else self.button_spamming_count - 1
+      if is_ray_ev and ray_ev_using_estimate:
+        if send_button == Buttons.RES_ACCEL:
+          self.ray_ev_estimated_cruise_speed = min(160, self.ray_ev_estimated_cruise_speed + 1)
+        elif send_button == Buttons.SET_DECEL:
+          self.ray_ev_estimated_cruise_speed = max(30, self.ray_ev_estimated_cruise_speed - 1)
       return send_button
     else:
       self.button_spamming_count = 0
