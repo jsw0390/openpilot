@@ -744,7 +744,7 @@ class VCruiseCarrot:
       return v_cruise_kph
 
     speed_delta = v_ego_kph - target_kph
-    curve_source = self.desiredSource in ["vturn", "model", "route"]
+    curve_source = self.desiredSource in ["vturn", "model", "route", "mapd", "mapd_curve"]
     lead_decel = (
       self.rayVisionIPedalAssist >= 2 and
       self.d_rel > 0 and not self.lead_radar and self.lead_prob >= self.rayVisionCruiseLeadProb and
@@ -752,7 +752,8 @@ class VCruiseCarrot:
     )
     trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
     resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
-    need_decel = speed_delta >= trigger_delta or (curve_source and speed_delta >= max(3.0, trigger_delta - 2.0)) or lead_decel
+    curve_trigger_delta = max(3.0, trigger_delta - 3.0)
+    need_decel = speed_delta >= trigger_delta or (curve_source and speed_delta >= curve_trigger_delta) or lead_decel
 
     if not self._ray_ipedal_active:
       if need_decel and CS.cruiseState.enabled:
