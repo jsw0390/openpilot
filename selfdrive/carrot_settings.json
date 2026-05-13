@@ -1419,7 +1419,7 @@
       "edescr": "-1:None, 0:Path, 1:Path+Lane, 2:Path+Lane+RoadEdge",
       "min": -1,
       "max": 2,
-      "default": 1,
+      "default": 2,
       "unit": 1,
       "cgroup": "显示设置",
       "ctitle": "显示车道信息",
