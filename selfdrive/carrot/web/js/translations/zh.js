@@ -162,6 +162,8 @@ window.CarrotTranslations.register("zh", {
     mapd_download: "下载",
     mapd_progress: "进度",
     mapd_locations: "地区",
+    mapd_data_date: "地图数据日期",
+    mapd_download_skipped: "地图日期相同，已跳过下载",
     mapd_tile: "地图瓦片",
     mapd_road: "道路",
     mapd_area_korea: "韩国",

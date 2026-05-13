@@ -30,6 +30,16 @@ function toolsQrToast(key, fallback, vars = null, options = null) {
   return message;
 }
 
+async function toolsQrEnsureVendor() {
+  if (typeof qrcode === "function" && typeof jsQR === "function") return;
+  if (typeof ensureToolsQrVendor === "function") {
+    await ensureToolsQrVendor();
+  }
+  if (typeof qrcode !== "function" || typeof jsQR !== "function") {
+    throw new Error("QR library not loaded");
+  }
+}
+
 function toolsQrStopCamera() {
   if (toolsQrScanTimer) {
     cancelAnimationFrame(toolsQrScanTimer);
@@ -257,7 +267,7 @@ function toolsQrDiffHtml(preview) {
 
 async function toolsQrShowBackup() {
   try {
-    await toolsQrEnsureDependency();
+    await Promise.all([toolsQrEnsureDependency(), toolsQrEnsureVendor()]);
     const j = await getJson("/api/params_qr_backup");
     const format = j.format || String(j.payload || "").split(/[.:]/, 1)[0] || "unknown";
     console.info("[carrot][qr-backup]", {
@@ -435,7 +445,7 @@ function toolsQrBindRestoreDialog(state) {
 
 async function toolsQrShowRestore() {
   try {
-    await toolsQrEnsureDependency();
+    await Promise.all([toolsQrEnsureDependency(), toolsQrEnsureVendor()]);
   } catch (e) {
     showError("qr restore", e);
     return;

@@ -162,6 +162,8 @@ window.CarrotTranslations.register("ko", {
     mapd_download: "다운로드",
     mapd_progress: "진행률",
     mapd_locations: "지역",
+    mapd_data_date: "지도 데이터 날짜",
+    mapd_download_skipped: "같은 날짜의 지도라 다운로드를 건너뜀",
     mapd_tile: "지도 타일",
     mapd_road: "도로",
     mapd_area_korea: "대한민국",

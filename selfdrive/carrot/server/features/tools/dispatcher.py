@@ -34,6 +34,8 @@ from .actions import normalize_action, validate_action, validate_shell_argv
 
 
 TMUX_LOG_PATH = "/data/media/tmux.log"
+MAPD_DATA_DIR = "/data/media/0/osm"
+MAPD_DOWNLOAD_META_PATH = os.path.join(MAPD_DATA_DIR, ".carrot_mapd_downloads.json")
 MAPD_DOWNLOAD_PATH_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MAPD_INPUT_TYPE_IDS = {
   "download": 0,
@@ -51,6 +53,133 @@ def normalize_mapd_download_path(path: Any) -> str:
     if len(part) > 128 or MAPD_DOWNLOAD_PATH_RE.match(part) is None:
       raise ValueError(f"invalid mapd download path: {part}")
   return ",".join(parts)
+
+
+def mapd_today() -> str:
+  return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def mapd_download_locations(path: str) -> List[str]:
+  return [part.strip() for part in str(path or "").split(",") if part.strip()]
+
+
+def read_mapd_download_meta() -> Dict[str, Any]:
+  try:
+    with open(MAPD_DOWNLOAD_META_PATH, "r", encoding="utf-8") as f:
+      data = json.load(f)
+    return data if isinstance(data, dict) else {}
+  except FileNotFoundError:
+    return {}
+  except Exception:
+    return {}
+
+
+def write_mapd_download_meta(meta: Dict[str, Any]) -> None:
+  os.makedirs(MAPD_DATA_DIR, exist_ok=True)
+  tmp_path = f"{MAPD_DOWNLOAD_META_PATH}.tmp"
+  with open(tmp_path, "w", encoding="utf-8") as f:
+    json.dump(meta, f, ensure_ascii=False, indent=2, sort_keys=True)
+  os.replace(tmp_path, MAPD_DOWNLOAD_META_PATH)
+
+
+def mapd_local_data_snapshot() -> Dict[str, Any]:
+  newest_mtime = 0.0
+  newest_path = ""
+  total_bytes = 0
+  file_count = 0
+
+  try:
+    for root, dirs, files in os.walk(MAPD_DATA_DIR):
+      dirs[:] = [name for name in dirs if not name.startswith(".")]
+      for name in files:
+        if name.startswith("."):
+          continue
+        path = os.path.join(root, name)
+        if path == MAPD_DOWNLOAD_META_PATH:
+          continue
+        try:
+          st = os.stat(path)
+        except OSError:
+          continue
+        file_count += 1
+        total_bytes += int(st.st_size)
+        if st.st_mtime > newest_mtime:
+          newest_mtime = st.st_mtime
+          newest_path = path
+  except OSError:
+    pass
+
+  data_date = time.strftime("%Y-%m-%d", time.localtime(newest_mtime)) if newest_mtime > 0 else ""
+  return {
+    "present": file_count > 0,
+    "data_date": data_date,
+    "file_count": file_count,
+    "total_bytes": total_bytes,
+    "newest_mtime": int(newest_mtime) if newest_mtime > 0 else 0,
+    "newest_file": newest_path,
+  }
+
+
+def mapd_download_meta_entry(path: str) -> Optional[Dict[str, Any]]:
+  downloads = read_mapd_download_meta().get("downloads")
+  if not isinstance(downloads, dict):
+    return None
+  entry = downloads.get(path)
+  return entry if isinstance(entry, dict) else None
+
+
+def mapd_download_skip_snapshot(path: str, force: bool = False) -> Optional[Dict[str, Any]]:
+  if force:
+    return None
+
+  local_data = mapd_local_data_snapshot()
+  if not local_data.get("present"):
+    return None
+
+  entry = mapd_download_meta_entry(path)
+  if not entry:
+    return None
+
+  checked_date = str(entry.get("checked_date") or entry.get("data_date") or "")
+  data_date = str(entry.get("data_date") or "")
+  today = mapd_today()
+  if checked_date != today or data_date != str(local_data.get("data_date") or ""):
+    return None
+
+  return {
+    "path": path,
+    "locations": mapd_download_locations(path),
+    "data_date": data_date,
+    "entry": entry,
+    "local_data": local_data,
+  }
+
+
+def update_mapd_download_meta(path: str) -> Dict[str, Any]:
+  local_data = mapd_local_data_snapshot()
+  today = mapd_today()
+  data_date = str(local_data.get("data_date") or today)
+  entry = {
+    "path": path,
+    "locations": mapd_download_locations(path),
+    "data_date": data_date,
+    "checked_date": today,
+    "downloaded_at": int(time.time()),
+    "local_data": local_data,
+  }
+
+  meta = read_mapd_download_meta()
+  downloads = meta.get("downloads")
+  if not isinstance(downloads, dict):
+    downloads = {}
+  downloads[path] = entry
+  meta.update({
+    "schema": 1,
+    "updated_at": int(time.time()),
+    "downloads": downloads,
+  })
+  write_mapd_download_meta(meta)
+  return entry
 
 
 def set_mapd_download_active(active: bool) -> None:
@@ -122,7 +251,7 @@ def mapd_progress_snapshot(progress: Any) -> Dict[str, Any]:
   }
 
 
-def mapd_status_snapshot(sm: Any) -> Dict[str, Any]:
+def mapd_status_snapshot(sm: Any, include_local: bool = False) -> Dict[str, Any]:
   extended_alive = bool(sm.alive.get("mapdExtendedOut"))
   out_alive = bool(sm.alive.get("mapdOut"))
   result: Dict[str, Any] = {
@@ -158,6 +287,10 @@ def mapd_status_snapshot(sm: Any) -> Dict[str, Any]:
     }
   except Exception:
     result["map"] = None
+
+  if include_local:
+    result["local_data"] = mapd_local_data_snapshot()
+    result["downloads"] = read_mapd_download_meta().get("downloads", {})
 
   return result
 
@@ -199,7 +332,7 @@ async def get_mapd_status(timeout_ms: int = 1200) -> Dict[str, Any]:
 
   sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut"])
   await update_mapd_submaster(sm, timeout_ms)
-  return mapd_status_snapshot(sm)
+  return mapd_status_snapshot(sm, include_local=True)
 
 
 def capture_tmux_log_sync() -> Tuple[int, str]:
@@ -247,6 +380,29 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
           error=str(e),
           error_code="INVALID_MAPD_PATH",
         )
+        return
+
+      skip_snapshot = mapd_download_skip_snapshot(download_path, bool(body.get("force")))
+      if skip_snapshot:
+        status = {
+          "ok": True,
+          "skipped": True,
+          "download": {
+            "active": False,
+            "cancelled": False,
+            "total_files": 0,
+            "downloaded_files": 0,
+            "percent": 100,
+            "locations": skip_snapshot.get("locations", []),
+            "location_details": [],
+          },
+          "local_data": skip_snapshot.get("local_data", {}),
+          "downloads": read_mapd_download_meta().get("downloads", {}),
+        }
+        message = f"map data already current: {download_path} ({skip_snapshot.get('data_date')})"
+        jobs.progress(job, message=message, percent=100)
+        jobs.append(job, f"{message}\n")
+        jobs.finish(job, ok=True, result={"ok": True, "skipped": True, "out": message, "status": status})
         return
 
       if HAS_PARAMS:
@@ -330,6 +486,8 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
 
           jobs.progress(job, message="map download complete", percent=100)
           set_mapd_download_active(False)
+          status["local_data"] = update_mapd_download_meta(download_path).get("local_data", {})
+          status["downloads"] = read_mapd_download_meta().get("downloads", {})
           jobs.finish(job, ok=True, result={"ok": True, "out": "map download complete", "status": status})
           return
 

@@ -26,6 +26,10 @@ from .services.heartbeat import heartbeat_loop
 from .services.params import HAS_PARAMS
 
 
+STATIC_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+STATIC_ASSET_PREFIXES = ("/css/", "/js/")
+
+
 # ===== request log middleware =====
 @web.middleware
 async def log_mw(request, handler):
@@ -39,6 +43,18 @@ async def log_mw(request, handler):
     #dt = (time.time() - t0) * 1000
     #print(f"[REQ] {ip} {request.method} {request.path_qs} {dt:.1f}ms UA={ua[:80]}")
     pass
+
+
+@web.middleware
+async def static_asset_cache_mw(request, handler):
+  resp = await handler(request)
+  if (
+    request.method in ("GET", "HEAD") and
+    request.path.startswith(STATIC_ASSET_PREFIXES) and
+    request.query.get("v")
+  ):
+    resp.headers["Cache-Control"] = STATIC_ASSET_CACHE_CONTROL
+  return resp
 
 
 def _do_gc_and_trim() -> None:
@@ -121,7 +137,7 @@ async def on_cleanup(app: web.Application) -> None:
 
 
 def make_app() -> web.Application:
-  app = web.Application(middlewares=[log_mw])
+  app = web.Application(middlewares=[log_mw, static_asset_cache_mw])
   app.on_startup.append(on_startup)
   app.on_cleanup.append(on_cleanup)
 

@@ -149,6 +149,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"MapboxSecretKey", {PERSISTENT, STRING}},
     {"MapdEnabled", {PERSISTENT, INT, "0"}},
     {"MapdDownloadActive", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"MapdRunOnroad", {PERSISTENT, BOOL}},
     {"MapdSettings", {PERSISTENT, JSON}},
     {"GMapKey", {PERSISTENT, STRING}},
     {"SearchInput", {PERSISTENT, INT}},

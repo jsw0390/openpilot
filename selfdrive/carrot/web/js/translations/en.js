@@ -162,6 +162,8 @@ window.CarrotTranslations.register("en", {
     mapd_download: "Download",
     mapd_progress: "Progress",
     mapd_locations: "Locations",
+    mapd_data_date: "Map data date",
+    mapd_download_skipped: "Same map data date, skipped",
     mapd_tile: "Map tile",
     mapd_road: "Road",
     mapd_area_korea: "South Korea",

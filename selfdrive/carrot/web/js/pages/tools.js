@@ -989,9 +989,16 @@ function formatMapdStatus(result = {}) {
   const status = result.status || result;
   const download = status.download || {};
   const map = status.map || {};
+  const localData = status.local_data || status.localData || {};
   const lines = [];
   lines.push(`${getUIText("mapd_enabled", "Mapd enabled")}: ${status.enabled ? "ON" : "OFF"}`);
   lines.push(`${getUIText("mapd_process", "Mapd process")}: ${status.mapd_alive ? "RUNNING" : "WAITING"}`);
+  if (status.skipped) {
+    lines.push(getUIText("mapd_download_skipped", "Same map data date, skipped"));
+  }
+  if (localData.present || localData.data_date) {
+    lines.push(`${getUIText("mapd_data_date", "Map data date")}: ${localData.data_date || "-"}`);
+  }
 
   if (download) {
     const active = download.active ? getUIText("working", "Working") : "idle";

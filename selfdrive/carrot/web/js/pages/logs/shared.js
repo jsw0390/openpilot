@@ -181,46 +181,55 @@ function openLogsVideoPlayer(title, src, options = {}) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => {
     overlay.classList.add("is-open");
-    try {
-      player = new Plyr(videoEl, {
-        controls: ["play-large","rewind","play","fast-forward","progress","current-time","fullscreen","download"],
-        hideControls: false,
-        seekTime: 5,
-        keyboard: { focused: true, global: false },
-        fullscreen: { enabled: true, fallback: true, iosNative: true },
-        urls: { download: downloadUrl },
-      });
-      player.source = {
-        type: "video",
-        title: title || "Video",
-        sources: [{ src, type: "video/mp4" }],
-      };
-      player.once("ready", () => {
-        const container = player.elements?.container || overlay;
-        const bindBtn = (sel, label) => {
-          container.querySelectorAll(sel).forEach((btn) => btn.addEventListener("click", () => showToast(label)));
-        };
-        bindBtn('[data-plyr="rewind"]', `⏪ ${getUIText("rewind_5", "5s")}`);
-        bindBtn('[data-plyr="fast-forward"]', `${getUIText("forward_5", "5s")} ⏩`);
-        bindBtn('[data-plyr="download"]', `⤓ ${getUIText("download", "Download")}`);
-        container.addEventListener("keydown", (ev) => {
-          if (ev.key === "ArrowLeft") showToast(`⏪ ${getUIText("rewind_5", "5s")}`);
-          else if (ev.key === "ArrowRight") showToast(`${getUIText("forward_5", "5s")} ⏩`);
+    (async () => {
+      try {
+        if (typeof ensurePlyrAssets === "function") {
+          await ensurePlyrAssets();
+        }
+        if (typeof Plyr !== "function") {
+          throw new Error("Plyr library not loaded");
+        }
+
+        player = new Plyr(videoEl, {
+          controls: ["play-large","rewind","play","fast-forward","progress","current-time","fullscreen","download"],
+          hideControls: false,
+          seekTime: 5,
+          keyboard: { focused: true, global: false },
+          fullscreen: { enabled: true, fallback: true, iosNative: true },
+          urls: { download: downloadUrl },
         });
-        player.on("play", () => showToast(`▶ ${getUIText("play", "Play")}`));
-        player.on("pause", () => showToast(`⏸ ${getUIText("pause", "Pause")}`));
-        player.on("ended", () => showToast(getUIText("ended", "End")));
-        player.on("ratechange", () => showToast(`⚡ ${player.speed}x`));
-        player.on("enterfullscreen", () => showToast(`⛶ ${getUIText("fullscreen", "Fullscreen")}`));
-        player.on("exitfullscreen", () => showToast(getUIText("fullscreen_exit", "Exit fullscreen")));
-        videoEl.addEventListener("enterpictureinpicture", () => showToast("⊞ PiP"));
-        videoEl.addEventListener("leavepictureinpicture", () => showToast(`⊟ ${getUIText("pip_exit", "Exit PiP")}`));
-        window.setTimeout(() => { suppressToasts = false; }, 350);
-      });
-    } catch (err) {
-      videoEl.controls = true;
-      videoEl.src = src;
-    }
+        player.source = {
+          type: "video",
+          title: title || "Video",
+          sources: [{ src, type: "video/mp4" }],
+        };
+        player.once("ready", () => {
+          const container = player.elements?.container || overlay;
+          const bindBtn = (sel, label) => {
+            container.querySelectorAll(sel).forEach((btn) => btn.addEventListener("click", () => showToast(label)));
+          };
+          bindBtn('[data-plyr="rewind"]', `⏪ ${getUIText("rewind_5", "5s")}`);
+          bindBtn('[data-plyr="fast-forward"]', `${getUIText("forward_5", "5s")} ⏩`);
+          bindBtn('[data-plyr="download"]', `⤓ ${getUIText("download", "Download")}`);
+          container.addEventListener("keydown", (ev) => {
+            if (ev.key === "ArrowLeft") showToast(`⏪ ${getUIText("rewind_5", "5s")}`);
+            else if (ev.key === "ArrowRight") showToast(`${getUIText("forward_5", "5s")} ⏩`);
+          });
+          player.on("play", () => showToast(`▶ ${getUIText("play", "Play")}`));
+          player.on("pause", () => showToast(`⏸ ${getUIText("pause", "Pause")}`));
+          player.on("ended", () => showToast(getUIText("ended", "End")));
+          player.on("ratechange", () => showToast(`⚡ ${player.speed}x`));
+          player.on("enterfullscreen", () => showToast(`⛶ ${getUIText("fullscreen", "Fullscreen")}`));
+          player.on("exitfullscreen", () => showToast(getUIText("fullscreen_exit", "Exit fullscreen")));
+          videoEl.addEventListener("enterpictureinpicture", () => showToast("⊞ PiP"));
+          videoEl.addEventListener("leavepictureinpicture", () => showToast(`⊟ ${getUIText("pip_exit", "Exit PiP")}`));
+          window.setTimeout(() => { suppressToasts = false; }, 350);
+        });
+      } catch (err) {
+        videoEl.controls = true;
+        videoEl.src = src;
+      }
+    })();
   });
 }
 
