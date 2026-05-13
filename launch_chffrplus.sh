@@ -44,6 +44,35 @@ function start_carrot_recovery {
   (cd "$DIR" && "$py_bin" "$recovery_script" --port 6999 >> /tmp/carrot_recovery.log 2>&1 &)
 }
 
+function ensure_python_package {
+  local import_name="$1"
+  local pip_name="${2:-$1}"
+  local wheel_dir="${3:-}"
+  local py_bin
+
+  py_bin="$(command -v python3 || command -v python || true)"
+  [ -n "$py_bin" ] || return
+
+  if "$py_bin" -c "import ${import_name}" > /dev/null 2>&1; then
+    echo "$import_name already installed."
+    return
+  fi
+
+  if [ -n "$wheel_dir" ] && ls "$wheel_dir"/"$pip_name"-*.whl > /dev/null 2>&1; then
+    echo "$import_name installing from local wheel to pydeps."
+    "$py_bin" -m pip install --no-index --find-links "$wheel_dir" --target "$PYDEPS" --upgrade "$pip_name" \
+      || echo "$import_name local install failed; continuing boot."
+  else
+    echo "$import_name missing; skipping boot-time network install."
+  fi
+
+  if "$py_bin" -c "import ${import_name}" > /dev/null 2>&1; then
+    echo "$import_name available."
+  else
+    echo "$import_name unavailable; continuing boot."
+  fi
+}
+
 function launch {
   # Remove orphaned git lock if it exists on boot
   [ -f "$DIR/.git/index.lock" ] && rm -f $DIR/.git/index.lock
@@ -95,45 +124,13 @@ function launch {
     agnos_init
   fi
 
-  rm selfdrive/pandad/*.so
+  rm -f selfdrive/pandad/*.so
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1500 > /tmp/launch_log
-  if python -c "import flask" > /dev/null 2>&1; then
-    echo "Flask already installed."
-  else
-    echo "Flask installing."
-    pip install flask
-  fi
-  if python -c "import shapely" > /dev/null 2>&1; then
-    echo "shapely already installed."
-  else
-    echo "shapely installing."
-    pip install shapely
-  fi
-  if python -c "import kaitaistruct" > /dev/null 2>&1; then
-    echo "kaitaistruct already installed."
-  else
-    echo "kaitaistruct installing."
-    pip install kaitaistruct
-  fi
-  if python3 -c "import msgpack" > /dev/null 2>&1; then
-    echo "msgpack already installed."
-  else
-    MSGPACK_WHEEL_DIR="$DIR/third_party/wheels"
-    if ls "$MSGPACK_WHEEL_DIR"/msgpack-*.whl > /dev/null 2>&1; then
-      echo "msgpack installing from local wheel to pydeps."
-      python3 -m pip install --no-index --find-links "$MSGPACK_WHEEL_DIR" --target "$PYDEPS" --upgrade msgpack || python3 -m pip install --target "$PYDEPS" --upgrade msgpack
-    else
-      echo "msgpack local wheel missing, installing to pydeps from network."
-      python3 -m pip install --target "$PYDEPS" --upgrade msgpack
-    fi
-
-    if python3 -c "import msgpack" > /dev/null 2>&1; then
-      echo "msgpack installed for python3."
-    else
-      echo "msgpack install failed for python3."
-    fi
-  fi
+  ensure_python_package flask
+  ensure_python_package shapely
+  ensure_python_package kaitaistruct
+  ensure_python_package msgpack msgpack "$DIR/third_party/wheels"
 
   # events language init
   #LANG=$(cat ${PARAMS_ROOT}/d/LanguageSetting)
