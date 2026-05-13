@@ -22,7 +22,6 @@ from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
-from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 
 from openpilot.system.hardware import HARDWARE
 from openpilot.system.version import get_build_metadata
@@ -43,11 +42,8 @@ ButtonType = car.CarState.ButtonEvent.Type
 SafetyModel = car.CarParams.SafetyModel
 
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
-STEER_TORQUE_SATURATION_THRESHOLD = 1e-2
-STEER_LIMIT_ALERT_MIN_SPEED = 1.0
 STEER_LIMIT_ALERT_MIN_LAT_ACCEL = 1.0
 STEER_LIMIT_ALERT_UNDERSHOOT_RATIO = 1.2
-STEER_LIMIT_ALERT_MODEL_FACTOR = 0.95
 STEER_LIMIT_ALERT_COOLDOWN = 6.0
 
 
@@ -415,12 +411,7 @@ class SelfdriveD:
       undershooting = abs(desired_lateral_accel) / abs(1e-3 + actual_lateral_accel) > STEER_LIMIT_ALERT_UNDERSHOOT_RATIO
       turning = abs(desired_lateral_accel) > STEER_LIMIT_ALERT_MIN_LAT_ACCEL
       # TODO: lac.saturated includes speed and other checks, should be pulled out
-      steer_saturated = undershooting and turning and (lac.saturated or self._steering_command_limited())
-
-    # Model-based curve limit warning (works without engagement)
-    if not self.CP.notCar and CS.vEgo > STEER_LIMIT_ALERT_MIN_SPEED:
-      model_lat_accel = abs(desired_lateral_accel)
-      steer_saturated = steer_saturated or model_lat_accel > self.CP.maxLateralAccel * STEER_LIMIT_ALERT_MODEL_FACTOR
+      steer_saturated = undershooting and turning and lac.saturated
 
     steer_saturated_alert_ready = (self.sm.frame - self.last_steer_saturated_alert_frame) * DT_CTRL > STEER_LIMIT_ALERT_COOLDOWN
     if steer_saturated and steer_saturated_alert_ready:
@@ -564,18 +555,6 @@ class SelfdriveD:
       return int(self.params.get('LongitudinalPersonality'))
     except (ValueError, TypeError):
       return log.LongitudinalPersonality.standard
-
-  def _steering_command_limited(self) -> bool:
-    if not (self.sm.valid.get('carControl', False) and self.sm.valid.get('carOutput', False)):
-      return False
-
-    requested_actuators = self.sm['carControl'].actuators
-    applied_actuators = self.sm['carOutput'].actuatorsOutput
-    if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
-      angle_error = abs(requested_actuators.steeringAngleDeg - applied_actuators.steeringAngleDeg)
-      return angle_error > STEER_ANGLE_SATURATION_THRESHOLD
-
-    return abs(requested_actuators.torque - applied_actuators.torque) > STEER_TORQUE_SATURATION_THRESHOLD
 
   def _steer_saturated_alert(self) -> Alert:
     sound = AudibleAlert.prompt if self.steer_saturated_sound else AudibleAlert.none
