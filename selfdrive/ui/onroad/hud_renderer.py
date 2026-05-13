@@ -4,6 +4,7 @@ import pyray as rl
 from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.onroad.exp_button import ExpButton
+from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -132,6 +133,7 @@ class HudRenderer(Widget):
     self._font_display = gui_app.font(FontWeight.DISPLAY)
 
     self._exp_button = ExpButton(UI_CONFIG.button_size, UI_CONFIG.wheel_icon_size)
+    self._torque_bar = TorqueBar()
 
     self._txt_speed_bg = gui_app.texture('images/speed_bg.png')
 
@@ -200,6 +202,8 @@ class HudRenderer(Widget):
       COLORS.HEADER_GRADIENT_START,
       COLORS.HEADER_GRADIENT_END,
     )
+
+    self._torque_bar.render(rect)
 
     if self.is_cruise_available:
       self._draw_set_speed_carrot(rect)

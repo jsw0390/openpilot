@@ -5,7 +5,7 @@ import pyray as rl
 from dataclasses import dataclass
 from typing import Optional
 from openpilot.common.constants import CV
-# from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar # 아이콘에 토크 적용: 토크바 미사용
+from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -183,7 +183,7 @@ class HudRenderer(Widget):
     self._font_display: rl.Font = gui_app.font(FontWeight.DISPLAY)
 
     self._turn_intent = TurnIntent()
-    # self._torque_bar = TorqueBar() # 아이콘에 토크 적용: 토크바 미사용
+    self._torque_bar = TorqueBar()
     self._torque_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps) # 아이콘에 토크 적용: LowPassFilter
 
     # 휠 당근 휠로 변경
@@ -272,7 +272,7 @@ class HudRenderer(Widget):
   def _render(self, rect: rl.Rectangle) -> None:
     """Render HUD elements to the screen."""
 
-    # self._torque_bar.render(rect) # 아이콘에 토크 적용: 토크바 미사용
+    self._torque_bar.render(rect)
 
     if self.is_cruise_set:
       self._draw_set_speed_sunny(rect)
