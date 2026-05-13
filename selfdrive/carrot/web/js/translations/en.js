@@ -503,6 +503,7 @@ window.CarrotTranslations.register("en", {
     CMD_TIMEOUT:         () => "Command timed out",
     TMUX_CAPTURE_FAIL:   () => "Failed to capture log",
     INVALID_MAPD_PATH:   () => "Invalid map download path",
+    MAPD_DISABLED:       () => "mapd is disabled. Enable it after installing a compatible mapd binary",
     MAPD_UNAVAILABLE:    () => "mapd is not running yet. Check MapdEnabled or reboot once",
     MAPD_DOWNLOAD_NOT_STARTED: () => "Map download did not start",
     MAPD_DOWNLOAD_TIMEOUT: () => "Map download timed out",

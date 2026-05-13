@@ -500,6 +500,7 @@ window.CarrotTranslations.register("zh", {
     CMD_TIMEOUT:         () => "命令执行超时",
     TMUX_CAPTURE_FAIL:   () => "日志捕获失败",
     INVALID_MAPD_PATH:   () => "地图下载路径无效",
+    MAPD_DISABLED:       () => "mapd 已禁用。请安装兼容的 mapd 后再启用",
     MAPD_UNAVAILABLE:    () => "mapd 尚未运行。请检查 MapdEnabled 或重启一次",
     MAPD_DOWNLOAD_NOT_STARTED: () => "地图下载未开始",
     MAPD_DOWNLOAD_TIMEOUT: () => "地图下载超时",

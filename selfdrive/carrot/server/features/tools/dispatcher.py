@@ -434,12 +434,22 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
         jobs.finish(job, ok=True, result={"ok": True, "skipped": True, "out": message, "status": status})
         return
 
+      if HAS_PARAMS and not Params().get_bool("MapdEnabled"):
+        error = "mapd is disabled. Enable it only after installing a compatible mapd binary."
+        jobs.finish(
+          job,
+          ok=False,
+          result={"ok": False, "error": error, "error_code": "MAPD_DISABLED"},
+          error=error,
+          error_code="MAPD_DISABLED",
+        )
+        return
+
       if HAS_PARAMS:
         try:
-          Params().put_bool("MapdEnabled", True)
           set_mapd_download_active(True)
         except Exception as e:
-          jobs.append(job, f"MapdEnabled set failed: {e}\n")
+          jobs.append(job, f"MapdDownloadActive set failed: {e}\n")
 
       from cereal import messaging
       pm = messaging.PubMaster(["mapdIn"])

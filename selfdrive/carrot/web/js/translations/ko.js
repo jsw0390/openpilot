@@ -500,6 +500,7 @@ window.CarrotTranslations.register("ko", {
     CMD_TIMEOUT:         () => "명령 실행 시간이 초과되었습니다",
     TMUX_CAPTURE_FAIL:   () => "로그 캡처에 실패했습니다",
     INVALID_MAPD_PATH:   () => "지도 다운로드 경로가 올바르지 않습니다",
+    MAPD_DISABLED:       () => "mapd가 비활성화되어 있습니다. 호환되는 mapd 적용 후 켜주세요",
     MAPD_UNAVAILABLE:    () => "mapd가 아직 실행되지 않았습니다. MapdEnabled를 확인하거나 한 번 재부팅해주세요",
     MAPD_DOWNLOAD_NOT_STARTED: () => "지도 다운로드가 시작되지 않았습니다",
     MAPD_DOWNLOAD_TIMEOUT: () => "지도 다운로드 시간이 초과되었습니다",

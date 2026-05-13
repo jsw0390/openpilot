@@ -188,7 +188,10 @@ class CarInterface(CarInterfaceBase):
       params.put_int("AutoCurveSpeedFactor", 120)
       params.put_int("AutoCurveSpeedAggressiveness", 90)
       params.put_int("AutoCurveSpeedLowerLimit", 30)
-      params.put_int("MapdEnabled", 1)
+      # Keep mapd off by default on Ray EV until the bundled mapd binary is
+      # compatible with this fork's msgq/cereal stack. A crashing mapd can
+      # take locationd down and block cruise engagement.
+      params.put_int("MapdEnabled", 0)
       print("$$$ Default settings applied to Kia Ray EV")
 
     ret.centerToFront = ret.wheelbase * 0.4
