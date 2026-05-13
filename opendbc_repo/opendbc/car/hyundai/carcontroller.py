@@ -574,7 +574,7 @@ class CarController(CarControllerBase):
 
     send_button = 0
     activate_cruise = False
-    resume_button = Buttons.CANCEL if self.CP.carFingerprint == CAR.KIA_RAY_EV else Buttons.RES_ACCEL
+    resume_button = Buttons.RES_ACCEL
 
     if CC.enabled:
       if not CS.out.cruiseState.enabled:
