@@ -574,19 +574,26 @@ class CarController(CarControllerBase):
 
     send_button = 0
     activate_cruise = False
+    is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
     resume_button = Buttons.RES_ACCEL
 
     if CC.enabled:
       if not CS.out.cruiseState.enabled:
-        if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
+        if (hud_control.leadVisible or v_ego_kph > 10.0) and (is_ray_ev or self.activateCruise == 0):
           send_button = resume_button
+          activate_cruise = self.activateCruise == 0
           self.activateCruise = 1
-          activate_cruise = True
       elif CC.cruiseControl.resume:
+        if is_ray_ev:
+          self.activateCruise = 0
         send_button = resume_button
       elif target < current and current>= 31 and self.speed_from_pcm != 1:
+        if is_ray_ev:
+          self.activateCruise = 0
         send_button = Buttons.SET_DECEL
       elif target > current and current < 160 and self.speed_from_pcm != 1:
+        if is_ray_ev:
+          self.activateCruise = 0
         send_button = Buttons.RES_ACCEL
     elif CS.out.activateCruise: #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:

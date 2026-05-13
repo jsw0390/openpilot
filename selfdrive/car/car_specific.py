@@ -50,7 +50,6 @@ class CarSpecificEvents:
     self.mute_seatbelt = False
     self.vCruise_prev = 250
     self.carrotCruise_prev = False
-    self.is_ray_ev = self.CP.brand == 'hyundai' and "KIA_RAY_EV" in str(getattr(self.CP, "carFingerprint", ""))
 
   def update_params(self):
     if self.frame % 100 == 0:
@@ -231,7 +230,7 @@ class CarSpecificEvents:
       events.add(EventName.invalidLkasSetting)
     if CS.lowSpeedAlert:
       events.add(EventName.belowSteerSpeed)
-    if CS.buttonEnable and not self.is_ray_ev:
+    if CS.buttonEnable:
       events.add(EventName.buttonEnable)
 
     # Handle cancel button presses
@@ -275,16 +274,10 @@ class CarSpecificEvents:
 
 
     if not self.CP.pcmCruise:
-      if self.is_ray_ev:
-        # Ray EV can report speed button intent before the vehicle/Panda side is
-        # actually controls-allowed. Engage only after the car cruise state rises.
-        if CS.cruiseState.enabled and not CS_prev.cruiseState.enabled and allow_enable:
-          if not events.contains(ET.NO_ENTRY):
-            events.add(EventName.buttonEnable)
-      elif CS.activateCruise > 0 and CS_prev.activateCruise <= 0:
+      if CS.activateCruise > 0 and CS_prev.activateCruise <= 0:
         if not events.contains(ET.NO_ENTRY):
           events.add(EventName.buttonEnable)
-      if CS.activateCruise < 0 and CS_prev.activateCruise >= 0:
+      elif CS.activateCruise < 0 and CS_prev.activateCruise >= 0:
         events.add(EventName.buttonCancel)
       if CS.softHoldActive > 0:
         events.add(EventName.softHold)
