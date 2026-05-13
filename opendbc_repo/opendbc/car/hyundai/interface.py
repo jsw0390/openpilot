@@ -154,12 +154,15 @@ class CarInterface(CarInterfaceBase):
     # Kia Ray EV - Auto-apply optimized default settings
     if candidate == CAR.KIA_RAY_EV:
       print("$$$ Kia Ray EV detected - Applying optimized settings...")
+      params.put_int("PathOffset", 0)          # Keep centered in lane mode
+      params.put_int("UseLaneLineSpeed", 20)   # Lane line mode speed
+      params.put_int("UseLaneLineCurveSpeed", 50) # Lane line mode curve speed
       params.put_int("LatSmoothSec", 18)      # Steering smoothing
       params.put_int("SteerActuatorDelay", 20) # Steering delay
       params.put_int("LatMpcJerkCost", 10)     # Curvature change limit
       params.put_int("LatMpcMotionCost", 20)   # Motion cost
       params.put_int("LatMpcPathCost", 230)    # Path cost
-      params.put_int("LatMpcInputOffset", 6)   # Input offset
+      params.put_int("LatMpcInputOffset", 4)   # Input offset
       # Lateral torque tuning
       params.put_int("LateralTorqueAccelFactor", 2500) # Lateral accel factor
       params.put_int("LateralTorqueFriction", 70)      # Friction compensation
