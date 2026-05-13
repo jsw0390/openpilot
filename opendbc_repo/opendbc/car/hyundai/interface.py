@@ -174,6 +174,20 @@ class CarInterface(CarInterfaceBase):
       params.put_int("CustomSteerMax", 400)    # Max steering torque command
       params.put_int("CustomSR", 0)            # Use live steer ratio
       params.put_int("SteerRatioRate", 100)    # Live steer ratio scale
+      # Vision cruise: conservative camera-only lead following with road-limit target.
+      params.put_int("RayVisionCruiseControl", 2)
+      params.put_int("RayVisionCruiseRoadOffset", 5)
+      params.put_int("RayVisionCruiseLeadProb", 85)
+      params.put_int("RayVisionCruiseTFollowAdd", 35)
+      params.put_int("RayVisionCruiseAccelFactor", 80)
+      params.put_int("RayVisionIPedalAssist", 1)
+      params.put_int("RayVisionIPedalSpeedDelta", 7)
+      params.put_int("RayVisionIPedalResumeMargin", 2)
+      params.put_int("TurnSpeedControlMode", 1)
+      params.put_int("AutoCurveSpeedFactor", 120)
+      params.put_int("AutoCurveSpeedAggressiveness", 90)
+      params.put_int("AutoCurveSpeedLowerLimit", 30)
+      params.put_int("MapdEnabled", 1)
       print("$$$ Default settings applied to Kia Ray EV")
 
     ret.centerToFront = ret.wheelbase * 0.4

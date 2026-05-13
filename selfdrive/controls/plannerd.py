@@ -25,7 +25,7 @@ def main():
   pm = messaging.PubMaster(['longitudinalPlan', 'driverAssistance', 'lateralPlan'])
   sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'liveParameters', 'radarState', 'modelV2', 'selfdriveState', 'carrotMan'],
                            poll='modelV2', ignore_avg_freq=['radarState'])
-  carrot = CarrotPlanner()
+  carrot = CarrotPlanner(CP)
 
   while True:
     sm.update()

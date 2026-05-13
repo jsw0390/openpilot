@@ -235,6 +235,21 @@
           <button id="btnDeviceInfo" class="btn btn--filled" type="button">Carrot Info</button>
         </div>
 
+        <div class="section tools-group" data-tools-group="mapd">
+          <button class="tools-group__toggle" type="button" aria-expanded="false" aria-controls="toolsGroupBodyMapd">
+            <span id="mapdToolsTitle" class="section-title tools-group__title">OSM Maps</span>
+            <span class="tools-group__chevron" aria-hidden="true"></span>
+          </button>
+          <div id="toolsGroupBodyMapd" class="tools-group__body ui-action-grid hidden" hidden>
+            <button id="btnMapdDownloadKorea" class="btn btn--filled" type="button">Korea map</button>
+            <button id="btnMapdDownloadCustom" class="btn" type="button">choose map</button>
+            <button id="btnMapdStatus" class="btn" type="button">map status</button>
+            <button id="btnMapdCancel" class="btn btn--danger" type="button">cancel download</button>
+          </div>
+        </div>
+
+        <hr class="divider">
+
         <div class="section tools-group is-open" data-tools-group="git">
           <button class="tools-group__toggle" type="button" aria-expanded="true" aria-controls="toolsGroupBodyGit">
             <span id="gitCommandsTitle" class="section-title tools-group__title">Git Commands</span>
@@ -612,14 +627,14 @@
   <script src="/js/vendor/qrcode-generator.js?v=1.4.4"></script>
   <script src="/js/vendor/jsQR.js?v=1.4.0"></script>
   <script src="/js/translations/registry.js?v=2605-09"></script>
-  <script src="/js/translations/ko.js?v=2605-12"></script>
-  <script src="/js/translations/en.js?v=2605-12"></script>
-  <script src="/js/translations/zh.js?v=2605-12"></script>
+  <script src="/js/translations/ko.js?v=2605-13"></script>
+  <script src="/js/translations/en.js?v=2605-13"></script>
+  <script src="/js/translations/zh.js?v=2605-13"></script>
   <script src="/js/realtime/hud_card.js?v=2604-05"></script>
   <script src="/js/shared/constants.js?v=2604-72"></script>
   <script src="/js/shared/dom.js?v=2604-71"></script>
   <script src="/js/shared/utils.js?v=2604-71"></script>
-  <script src="/js/shared/i18n.js?v=2605-06"></script>
+  <script src="/js/shared/i18n.js?v=2605-07"></script>
   <script src="/js/shared/api.js?v=2604-73"></script>
   <script src="/js/shared/setting_diff.js?v=2605-01"></script>
   <script src="/js/shared/activity.js?v=2604-04"></script>
@@ -637,7 +652,7 @@
   <script src="/js/pages/setting_device.js?v=2605-09"></script>
   <script src="/js/pages/tools_web_settings.js?v=2605-04"></script>
   <script src="/js/pages/tools_notifications.js?v=2605-25"></script>
-  <script src="/js/pages/tools.js?v=2605-14"></script>
+  <script src="/js/pages/tools.js?v=2605-15"></script>
   <script src="/js/pages/tools_settings_qr.js?v=2605-11"></script>
   <script src="/js/pages/branch.js?v=2604-82"></script>
   <script src="/js/pages/logs/shared.js?v=2605-15"></script>

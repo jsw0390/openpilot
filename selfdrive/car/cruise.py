@@ -149,6 +149,7 @@ from openpilot.common.params import Params
 class VCruiseCarrot:
   def __init__(self, CP):
     self.CP = CP
+    self.is_ray_ev = "KIA_RAY_EV" in str(getattr(CP, "carFingerprint", ""))
     self.frame = 0
     self.params_memory = Params("/dev/shm/params")
     self.params = Params()
@@ -211,6 +212,8 @@ class VCruiseCarrot:
     self.d_rel = 0
     self.v_rel = 0
     self.v_lead_kph = 0
+    self.lead_radar = False
+    self.lead_prob = 0.0
     self.model_v_kph = 0
 
     self._log_timer = 0
@@ -220,6 +223,15 @@ class VCruiseCarrot:
     self.autoCruiseControl = 0
     self.autoCruiseControl_cancel_timer = 0
     self.AutoSpeedUptoRoadSpeedLimit = 0.0
+    self.rayVisionCruiseControl = 0
+    self.rayVisionCruiseLeadProb = 0.85
+    self.rayVisionIPedalAssist = 0
+    self.rayVisionIPedalSpeedDelta = 7
+    self.rayVisionIPedalResumeMargin = 2
+    self._ray_ipedal_active = False
+    self._ray_ipedal_timer = 0
+    self._ray_ipedal_cancel_repeat = 0
+    self.desiredSource = ""
 
     self.useLaneLineSpeed = self.params.get_int("UseLaneLineSpeed")
     self.useLaneLineSpeedApply = self.useLaneLineSpeed
@@ -266,6 +278,11 @@ class VCruiseCarrot:
       self.autoRoadSpeedLimitOffset = self.params.get_int("AutoRoadSpeedLimitOffset")
       self.autoNaviSpeedSafetyFactor = self.params.get_float("AutoNaviSpeedSafetyFactor") * 0.01
       self.cruiseOnDist = self.params.get_float("CruiseOnDist") * 0.01
+      self.rayVisionCruiseControl = self.params.get_int("RayVisionCruiseControl")
+      self.rayVisionCruiseLeadProb = np.clip(self.params.get_float("RayVisionCruiseLeadProb") / 100., 0.5, 0.95)
+      self.rayVisionIPedalAssist = self.params.get_int("RayVisionIPedalAssist")
+      self.rayVisionIPedalSpeedDelta = self.params.get_int("RayVisionIPedalSpeedDelta")
+      self.rayVisionIPedalResumeMargin = self.params.get_int("RayVisionIPedalResumeMargin")
       cruiseSpeed1 = self.params.get_float("CruiseSpeed1") * unit_factor
       cruiseSpeed2 = self.params.get_float("CruiseSpeed2") * unit_factor
       cruiseSpeed3 = self.params.get_float("CruiseSpeed3") * unit_factor
@@ -292,6 +309,7 @@ class VCruiseCarrot:
       carrot_man = sm['carrotMan']
       self.nRoadLimitSpeed = carrot_man.nRoadLimitSpeed
       self.desiredSpeed = carrot_man.desiredSpeed
+      self.desiredSource = carrot_man.desiredSource
       self.carrot_cmd_index = carrot_man.carrotCmdIndex
       self.carrot_cmd = carrot_man.carrotCmd
       self.carrot_arg = carrot_man.carrotArg
@@ -305,6 +323,8 @@ class VCruiseCarrot:
       self.d_rel = lead.dRel if lead.status else 0
       self.v_rel = lead.vRel if lead.status else 0
       self.v_lead_kph = lead.vLeadK * CV.MS_TO_KPH if lead.status else 0
+      self.lead_radar = bool(lead.radar) if lead.status else False
+      self.lead_prob = lead.modelProb if lead.status else 0.0
     if sm.alive['drivingModelData']:
       self.model_v_kph = sm['drivingModelData'].action.desiredVelocity * CV.MS_TO_KPH
 
@@ -601,6 +621,7 @@ class VCruiseCarrot:
         self._cruise_control(1, -1, "Cruise on (paddle decel)")
 
     v_cruise_kph = self._update_cruise_state(CS, CC, v_cruise_kph)
+    v_cruise_kph = self._update_ray_ipedal_assist(CS, CC, v_cruise_kph)
     return v_cruise_kph
 
   ## desiredSpeed :
@@ -692,6 +713,77 @@ class VCruiseCarrot:
       return True, d_final
     else:
       return False, d_final
+
+  def _ray_ipedal_enabled(self):
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
+
+  def _ray_ipedal_set_cruise(self, enable, reason):
+    self._activate_cruise = enable
+    if enable > 0:
+      self._cruise_ready = False
+    elif enable < 0:
+      self._cruise_ready = enable == -2
+    self._add_log(reason)
+
+  def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
+    if not self._ray_ipedal_enabled():
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      return v_cruise_kph
+
+    v_ego_kph = self.v_ego_kph_set
+    target_kph = float(v_cruise_kph)
+    if 0 < self.desiredSpeed < 200:
+      target_kph = min(target_kph, float(self.desiredSpeed))
+
+    if CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or v_ego_kph < 15:
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      return v_cruise_kph
+
+    speed_delta = v_ego_kph - target_kph
+    curve_source = self.desiredSource in ["vturn", "model", "route"]
+    lead_decel = (
+      self.rayVisionIPedalAssist >= 2 and
+      self.d_rel > 0 and not self.lead_radar and self.lead_prob >= self.rayVisionCruiseLeadProb and
+      self.v_rel < -1.0 and self.d_rel < max(12.0, CS.vEgo * 1.1)
+    )
+    trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
+    resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
+    need_decel = speed_delta >= trigger_delta or (curve_source and speed_delta >= max(3.0, trigger_delta - 2.0)) or lead_decel
+
+    if not self._ray_ipedal_active:
+      if need_decel and CS.cruiseState.enabled:
+        self._ray_ipedal_active = True
+        self._ray_ipedal_timer = 0
+        self._ray_ipedal_cancel_repeat = 0
+        self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal decel {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
+      return min(v_cruise_kph, target_kph)
+
+    self._ray_ipedal_timer += 1
+    self._ray_ipedal_cancel_repeat = max(0, self._ray_ipedal_cancel_repeat - 1)
+
+    min_off_frames = int(1.2 / 0.01)
+    max_off_frames = int(8.0 / 0.01)
+    ready_to_resume = speed_delta <= resume_margin or self._ray_ipedal_timer >= max_off_frames
+    if not ready_to_resume and self._activate_cruise > 0:
+      self._activate_cruise = 0
+
+    if CC.enabled and CS.cruiseState.enabled:
+      if self._ray_ipedal_cancel_repeat <= 0:
+        self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal cancel {self.desiredSource}:{speed_delta:.0f}")
+        self._ray_ipedal_cancel_repeat = int(0.5 / 0.01)
+    elif ready_to_resume and self._ray_ipedal_timer >= min_off_frames:
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      self._ray_ipedal_set_cruise(1, f"Ray i-Pedal resume {v_ego_kph:.0f}<={target_kph:.0f}")
+    else:
+      self._add_log(f"Ray i-Pedal active {v_ego_kph:.0f}>{target_kph:.0f}")
+
+    return min(v_cruise_kph, target_kph)
 
   def _update_cruise_state(self, CS, CC, v_cruise_kph):
     if not CC.enabled:

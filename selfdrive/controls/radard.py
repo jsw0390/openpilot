@@ -455,7 +455,9 @@ class VisionTrack:
       self.aLeadTau *= 0.9
 
 class RadarD:
-  def __init__(self, delay: float = 0.0):
+  def __init__(self, delay: float = 0.0, CP=None):
+    self.CP = CP
+    self.is_ray_ev = "KIA_RAY_EV" in str(getattr(CP, "carFingerprint", ""))
     self.current_time = 0.0
 
     self.tracks: dict[int, Track] = {}
@@ -478,6 +480,8 @@ class RadarD:
     self.enable_radar_tracks = self.params.get_int("EnableRadarTracks")
     self.enable_corner_radar = self.params.get_int("EnableCornerRadar")
     self.radar_lat_factor = 0.0
+    self.ray_vision_cruise_control = 0
+    self.vision_lead_prob_threshold = 0.5
 
     self.radar_detected = False
 
@@ -496,6 +500,11 @@ class RadarD:
     self.enable_corner_radar = self.params.get_int("EnableCornerRadar")
     self.radar_lat_factor = self.params.get_float("RadarLatFactor") * 0.01
     self.radar_reaction_factor = self.params.get_float("RadarReactionFactor") * 0.01
+    self.ray_vision_cruise_control = self.params.get_int("RayVisionCruiseControl") if self.is_ray_ev else 0
+    if self.ray_vision_cruise_control > 0:
+      self.vision_lead_prob_threshold = float(np.clip(self.params.get_float("RayVisionCruiseLeadProb") * 0.01, 0.5, 0.95))
+    else:
+      self.vision_lead_prob_threshold = 0.5
     self.detect_cut_in = self.radar_lat_factor > 0
 
     leads_v3 = sm['modelV2'].leadsV3
@@ -596,7 +605,7 @@ class RadarD:
     if track is not None:
       lead_dict = track.get_RadarState(lead_prob, self.vision_tracks[0].yRel)
       radar = True
-    elif (track is None) and ready and (lead_prob > .5):
+    elif (track is None) and ready and (lead_prob > self.vision_lead_prob_threshold):
         lead_dict = self.vision_tracks[index].get_lead(md)
 
     if self.enable_corner_radar > 1:
@@ -865,7 +874,7 @@ def main() -> None:
   sm = messaging.SubMaster(['modelV2', 'carState', 'liveTracks'])
   pm = messaging.PubMaster(['radarState'])
 
-  RD = RadarD(CP.radarDelay)
+  RD = RadarD(CP.radarDelay, CP)
 
   while 1:
     sm.update()

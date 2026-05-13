@@ -199,7 +199,7 @@ class CarrotMan:
     self.params = Params()
     self.params_memory = Params("/dev/shm/params")
     self.gps_location_service = get_gps_location_service(self.params)
-    self.sm = messaging.SubMaster(['deviceState', 'carState', 'controlsState', 'radarState', 'longitudinalPlan', 'modelV2', 'selfdriveState', 'carControl', 'navRouteNavd', self.gps_location_service, 'navInstruction'])
+    self.sm = messaging.SubMaster(['deviceState', 'carState', 'controlsState', 'radarState', 'longitudinalPlan', 'modelV2', 'selfdriveState', 'carControl', 'navRouteNavd', self.gps_location_service, 'navInstruction', 'mapdOut'])
     self.pm = messaging.PubMaster(['carrotMan', "navRoute", "navInstructionCarrot"])
 
     self.carrot_serv = CarrotServ()
@@ -705,15 +705,15 @@ class CarrotMan:
     url = "https://tmux.carrotpilot.app/upload"
 
     payload = {
-      "car_name"          : f"{_pstr("CarName")}",
-      "git_branch"        : f"{_pstr("GitBranch")}",
-      "github_id"         : f"{_pstr("GithubUsername")}",
-      "git_remote"        : f"{_pstr("GitRemote")}",
-      "git_commit"        : f"{_pstr("GitCommit")}",
-      "git_commit_date"   : f"{_pstr("GitCommitDate")}",
-      "dongle_id"         : f"{_pstr("DongleId")}",
-      "device_serial"     : f"{_pstr("HardwareSerial")}",
-      "local_ip"          : f"{get_private_ip_by_iface("wlan0")}",
+      "car_name"          : _pstr("CarName"),
+      "git_branch"        : _pstr("GitBranch"),
+      "github_id"         : _pstr("GithubUsername"),
+      "git_remote"        : _pstr("GitRemote"),
+      "git_commit"        : _pstr("GitCommit"),
+      "git_commit_date"   : _pstr("GitCommitDate"),
+      "dongle_id"         : _pstr("DongleId"),
+      "device_serial"     : _pstr("HardwareSerial"),
+      "local_ip"          : get_private_ip_by_iface("wlan0"),
     }
 
     files = [

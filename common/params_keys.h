@@ -147,6 +147,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"MapboxStyle", {PERSISTENT, INT}},
     {"MapboxPublicKey", {PERSISTENT, STRING}},
     {"MapboxSecretKey", {PERSISTENT, STRING}},
+    {"MapdEnabled", {PERSISTENT, INT, "0"}},
+    {"MapdSettings", {PERSISTENT, JSON}},
     {"GMapKey", {PERSISTENT, STRING}},
     {"SearchInput", {PERSISTENT, INT}},
 
@@ -202,6 +204,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"StoppingAccel", {PERSISTENT, INT, "0"}},
     {"AutoSpeedUptoRoadSpeedLimit", {PERSISTENT, INT, "0"}},
     {"AutoRoadSpeedAdjust", {PERSISTENT, INT, "50"}},
+    {"RayVisionCruiseControl", {PERSISTENT, INT, "0"}},
+    {"RayVisionCruiseRoadOffset", {PERSISTENT, INT, "5"}},
+    {"RayVisionCruiseLeadProb", {PERSISTENT, INT, "85"}},
+    {"RayVisionCruiseTFollowAdd", {PERSISTENT, INT, "35"}},
+    {"RayVisionCruiseAccelFactor", {PERSISTENT, INT, "80"}},
+    {"RayVisionIPedalAssist", {PERSISTENT, INT, "0"}},
+    {"RayVisionIPedalSpeedDelta", {PERSISTENT, INT, "7"}},
+    {"RayVisionIPedalResumeMargin", {PERSISTENT, INT, "2"}},
 
     {"StopDistanceCarrot", {PERSISTENT, INT, "550"}},
     {"JLeadFactor3", {PERSISTENT, INT, "0"}},

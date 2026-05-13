@@ -473,7 +473,7 @@ class CarController(CarControllerBase):
     if CS.out.brakePressed or CS.out.brakeHoldActive:
       return can_sends
     if use_clu11:
-      if CC.cruiseControl.cancel:
+      if CC.cruiseControl.cancel or CS.out.activateCruise < 0:
         can_sends.append(hyundaican.create_clu11(self.packer, self.frame, CS.clu11, Buttons.CANCEL, self.CP))
       elif False: #CC.cruiseControl.resume:
         # send resume at a max freq of 10Hz
@@ -504,7 +504,7 @@ class CarController(CarControllerBase):
 
       if (self.frame - self.last_button_frame) * DT_CTRL > 0.25:
         # cruise cancel
-        if CC.cruiseControl.cancel:
+        if CC.cruiseControl.cancel or CS.out.activateCruise < 0:
           if (self.frame - self.last_button_frame) * DT_CTRL > 0.1:
             print("cruiseControl.cancel222222")
             if self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
@@ -679,4 +679,3 @@ class HyundaiJerk:
         self.jerk_l = min(max(1.0, -self.jerk * 4.0), jerk_max_l)
         self.cb_upper = np.clip(0.9 + accel * 0.2, 0, 1.2)
         self.cb_lower = np.clip(0.8 + accel * 0.2, 0, 1.2)
-

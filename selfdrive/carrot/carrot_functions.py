@@ -43,8 +43,10 @@ class TrafficState(Enum):
 A_CRUISE_MAX_BP_CARROT = [0., 10 * CV.KPH_TO_MS, 40 * CV.KPH_TO_MS, 60 * CV.KPH_TO_MS, 80 * CV.KPH_TO_MS, 110 * CV.KPH_TO_MS, 140 * CV.KPH_TO_MS]
 
 class CarrotPlanner:
-  def __init__(self):
+  def __init__(self, CP=None):
     self.params = Params()
+    self.CP = CP
+    self.is_ray_ev = "KIA_RAY_EV" in str(getattr(CP, "carFingerprint", ""))
     self.params_count = 0
     self.frame = 0
 
@@ -140,6 +142,21 @@ class CarrotPlanner:
     self._stop_x_rl = None
     self.last_event_time = 0.0
 
+    self.rayVisionCruiseControl = 0
+    self.rayVisionCruiseRoadOffset = 5
+    self.rayVisionCruiseLeadProb = 0.85
+    self.rayVisionCruiseTFollowAdd = 0.35
+    self.rayVisionCruiseAccelFactor = 0.8
+    self.ray_vision_road_target_kph = 0.0
+    self._read_ray_vision_params()
+
+  def _read_ray_vision_params(self):
+    self.rayVisionCruiseControl = self.params.get_int("RayVisionCruiseControl")
+    self.rayVisionCruiseRoadOffset = self.params.get_int("RayVisionCruiseRoadOffset")
+    self.rayVisionCruiseLeadProb = np.clip(self.params.get_float("RayVisionCruiseLeadProb") / 100., 0.5, 0.95)
+    self.rayVisionCruiseTFollowAdd = np.clip(self.params.get_float("RayVisionCruiseTFollowAdd") / 100., 0.0, 1.0)
+    self.rayVisionCruiseAccelFactor = np.clip(self.params.get_float("RayVisionCruiseAccelFactor") / 100., 0.5, 1.0)
+
   def _params_update(self):
     self.frame += 1
     self.params_count += 1
@@ -182,14 +199,54 @@ class CarrotPlanner:
       self.autoNaviSpeedDecelRate = float(self.params.get_int("AutoNaviSpeedDecelRate")) * 0.01
       self.aChangeCostStarting = self.params.get_float("AChangeCostStarting")
       self.trafficStopDistanceAdjust = self.params.get_float("TrafficStopDistanceAdjust") / 100.
+    elif self.params_count == 50:
+      self._read_ray_vision_params()
     elif self.params_count >= 100:
 
       self.params_count = 0
 
+  def _ray_vision_cruise_enabled(self):
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0
+
   def get_carrot_accel(self, v_ego):
     cruiseMaxVals = [self.cruiseMaxVals0, self.cruiseMaxVals1, self.cruiseMaxVals2, self.cruiseMaxVals3, self.cruiseMaxVals4, self.cruiseMaxVals5, self.cruiseMaxVals6]
     factor = self.myHighModeFactor if self.myDrivingMode == DrivingMode.High else self.mySafeFactor
+    if self._ray_vision_cruise_enabled():
+      factor *= self.rayVisionCruiseAccelFactor
     return np.interp(v_ego, A_CRUISE_MAX_BP_CARROT, cruiseMaxVals) * factor
+
+  def _apply_ray_vision_road_speed(self, sm, v_cruise_kph):
+    if not self._ray_vision_cruise_enabled() or not sm.alive['carrotMan']:
+      self.ray_vision_road_target_kph = 0.0
+      return v_cruise_kph
+
+    carstate = sm['carState']
+    if carstate.gasPressed or carstate.brakePressed:
+      self.ray_vision_road_target_kph = 0.0
+      return v_cruise_kph
+
+    road_limit_kph = float(sm['carrotMan'].nRoadLimitSpeed)
+    if road_limit_kph < 40.0 or road_limit_kph > 120.0:
+      self.ray_vision_road_target_kph = 0.0
+      return v_cruise_kph
+
+    target_kph = float(np.clip(road_limit_kph + self.rayVisionCruiseRoadOffset, 40.0, 145.0))
+
+    if self.rayVisionCruiseControl == 1:
+      self.ray_vision_road_target_kph = target_kph
+      return min(v_cruise_kph, target_kph)
+
+    if self.ray_vision_road_target_kph <= 0.0:
+      self.ray_vision_road_target_kph = v_cruise_kph
+
+    step_up = 0.05
+    step_down = 0.15
+    if target_kph > self.ray_vision_road_target_kph:
+      self.ray_vision_road_target_kph = min(target_kph, self.ray_vision_road_target_kph + step_up)
+    else:
+      self.ray_vision_road_target_kph = max(target_kph, self.ray_vision_road_target_kph - step_down)
+
+    return float(self.ray_vision_road_target_kph)
 
   def _get_base_t_follow(self, personality, v_ego):
     if self.enableSpeedTF < 0:
@@ -321,6 +378,10 @@ class CarrotPlanner:
         self.jerk_factor_apply = self.jerk_factor * 0.5
 
       t_follow = np.clip(t_follow, 0.3, 2.0)
+
+    if lead.status and not lead.radar and self._ray_vision_cruise_enabled():
+      t_follow += self.rayVisionCruiseTFollowAdd
+      self.jerk_factor_apply = max(self.jerk_factor_apply, self.jerk_factor * 1.25)
 
     return self.apply_t_follow(t_follow, 0.0)
 
@@ -476,6 +537,7 @@ class CarrotPlanner:
     self.drivingModeDetector.update_data(carstate, leadOne)
 
     v_cruise_kph = self.cruise_eco_control(v_ego_cluster_kph, v_cruise_kph)
+    v_cruise_kph = self._apply_ray_vision_road_speed(sm, v_cruise_kph)
     v_cruise_kph, atc_active = self._update_carrot_man(sm, v_ego_kph, v_cruise_kph)
     
     #if atc_active and not self.atc_active and self.xState not in [XState.e2eStop, XState.e2eStopped, XState.lead]:

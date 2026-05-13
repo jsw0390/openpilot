@@ -86,6 +86,11 @@ class CarrotServ:
     self.nRoadLimitSpeed = 30
     self.nRoadLimitSpeed_last = 30
     self.nRoadLimitSpeed_counter = 0
+    self.mapd_speed_limit_kph = 0
+    self.mapd_suggested_speed_kph = 0
+    self.mapd_curve_speed_kph = 0
+    self.mapd_road_name = ""
+    self.mapd_tile_loaded = False
 
     self.active_carrot = 0     ## 1: CarrotMan Active, 2: sdi active , 3: speed decel active, 4: section active, 5: bump active, 6: speed limit active
     self.active_count = 0
@@ -857,6 +862,32 @@ class CarrotServ:
         self.xSpdDist = distance
         self.xSpdType =xSpdType
 
+  def update_mapd(self, sm):
+    self.mapd_speed_limit_kph = 0
+    self.mapd_suggested_speed_kph = 0
+    self.mapd_curve_speed_kph = 0
+    self.mapd_tile_loaded = False
+
+    if not self.params.get_bool("MapdEnabled") or 'mapdOut' not in sm.data or not sm.alive['mapdOut'] or not sm.valid['mapdOut']:
+      return
+
+    mapd = sm['mapdOut']
+    self.mapd_tile_loaded = bool(mapd.tileLoaded)
+    self.mapd_road_name = mapd.roadName
+
+    if not self.mapd_tile_loaded:
+      return
+
+    if mapd.speedLimit > 0:
+      self.mapd_speed_limit_kph = int(round(mapd.speedLimit * CV.MS_TO_KPH))
+      if self.active_kisa_count <= 0:
+        self.nRoadLimitSpeed = max(30, self.mapd_speed_limit_kph)
+
+    if mapd.suggestedSpeed > 0:
+      self.mapd_suggested_speed_kph = int(round(mapd.suggestedSpeed * CV.MS_TO_KPH))
+    if mapd.mapCurveSpeed > 0:
+      self.mapd_curve_speed_kph = int(round(mapd.mapCurveSpeed * CV.MS_TO_KPH))
+
   def update_navi(self, remote_ip, sm, pm, vturn_speed, coords, distances, route_speed, gps_service):
 
     self.debugText = ""
@@ -874,6 +905,8 @@ class CarrotServ:
       v_ego = v_ego_kph = 0
       delta_dist = 0
       CS = None
+
+    self.update_mapd(sm)
 
     road_speed_limit_changed = True if self.nRoadLimitSpeed != self.nRoadLimitSpeed_last else False
     self.nRoadLimitSpeed_last = self.nRoadLimitSpeed
@@ -977,6 +1010,10 @@ class CarrotServ:
     ]
     if self.turnSpeedControlMode in [1,2]:
       speed_n_sources.append((max(abs(vturn_speed), self.autoCurveSpeedLowerLimit), "vturn"))
+    if self.mapd_suggested_speed_kph > 0:
+      speed_n_sources.append((max(self.mapd_suggested_speed_kph, self.autoCurveSpeedLowerLimit), "mapd"))
+    if self.mapd_curve_speed_kph > 0:
+      speed_n_sources.append((max(self.mapd_curve_speed_kph, self.autoCurveSpeedLowerLimit), "mapd_curve"))
 
     route_speed = max(route_speed * self.mapTurnSpeedFactor, self.autoCurveSpeedLowerLimit)
     if self.turnSpeedControlMode == 2:

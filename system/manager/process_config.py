@@ -85,6 +85,9 @@ def enable_xiaoge_data(started, params, CP: car.CarParams) -> bool:
 def enable_webrtc(started, params, CP: car.CarParams) -> bool:
   return params.get_int("DisableDM") == 2
 
+def enable_mapd(started, params, CP: car.CarParams) -> bool:
+  return not PC and params.get_bool("MapdEnabled")
+
 procs = [
   DaemonProcess("manage_athenad", "system.athena.manage_athenad", "AthenadPid"),
 
@@ -117,6 +120,7 @@ procs = [
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", enable_dm, enabled=(WEBCAM or not PC)),
   PythonProcess("qcomgpsd", "system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI),
   PythonProcess("navd", "selfdrive.navd.navd", only_onroad),
+  NativeProcess("mapd", "selfdrive", ["./mapd"], enable_mapd),
   PythonProcess("pandad", "selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),

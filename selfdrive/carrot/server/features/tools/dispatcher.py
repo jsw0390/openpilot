@@ -14,6 +14,7 @@ import asyncio
 import glob
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -32,6 +33,163 @@ from .actions import normalize_action, validate_action, validate_shell_argv
 
 
 TMUX_LOG_PATH = "/data/media/tmux.log"
+MAPD_DOWNLOAD_PATH_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+MAPD_INPUT_TYPE_IDS = {
+  "download": 0,
+  "cancelDownload": 27,
+}
+
+
+def normalize_mapd_download_path(path: Any) -> str:
+  parts = [part.strip() for part in str(path or "").split(",") if part.strip()]
+  if not parts:
+    raise ValueError("missing mapd download path")
+  if len(parts) > 12:
+    raise ValueError("too many mapd download areas")
+  for part in parts:
+    if len(part) > 128 or MAPD_DOWNLOAD_PATH_RE.match(part) is None:
+      raise ValueError(f"invalid mapd download path: {part}")
+  return ",".join(parts)
+
+
+def set_mapd_input_type(mapd_in: Any, input_type: str) -> None:
+  try:
+    mapd_in.type = input_type
+    return
+  except Exception:
+    pass
+
+  try:
+    from cereal import custom
+    mapd_in.type = getattr(custom.MapdInputType, input_type)
+    return
+  except Exception:
+    pass
+
+  mapd_in.type = MAPD_INPUT_TYPE_IDS[input_type]
+
+
+def send_mapd_input(pm: Any, input_type: str, *, str_value: str = "",
+                    float_value: float = 0.0, bool_value: bool = False) -> None:
+  from cereal import messaging
+
+  msg = messaging.new_message("mapdIn", valid=True)
+  set_mapd_input_type(msg.mapdIn, input_type)
+  msg.mapdIn.str = str(str_value or "")
+  msg.mapdIn.float = float(float_value)
+  msg.mapdIn.bool = bool(bool_value)
+  pm.send("mapdIn", msg)
+
+
+def mapd_progress_snapshot(progress: Any) -> Dict[str, Any]:
+  total = int(getattr(progress, "totalFiles", 0) or 0)
+  downloaded = int(getattr(progress, "downloadedFiles", 0) or 0)
+  percent = int(max(0, min(100, round((downloaded / total) * 100)))) if total > 0 else None
+  details = []
+  try:
+    for item in progress.locationDetails:
+      details.append({
+        "location": str(getattr(item, "location", "") or ""),
+        "total_files": int(getattr(item, "totalFiles", 0) or 0),
+        "downloaded_files": int(getattr(item, "downloadedFiles", 0) or 0),
+      })
+  except Exception:
+    details = []
+
+  try:
+    locations = [str(item) for item in progress.locations]
+  except Exception:
+    locations = []
+
+  return {
+    "active": bool(getattr(progress, "active", False)),
+    "cancelled": bool(getattr(progress, "cancelled", False)),
+    "total_files": total,
+    "downloaded_files": downloaded,
+    "percent": percent,
+    "locations": locations,
+    "location_details": details,
+  }
+
+
+def mapd_status_snapshot(sm: Any) -> Dict[str, Any]:
+  extended_alive = bool(sm.alive.get("mapdExtendedOut"))
+  out_alive = bool(sm.alive.get("mapdOut"))
+  result: Dict[str, Any] = {
+    "ok": True,
+    "enabled": False,
+    "mapd_alive": extended_alive or out_alive,
+    "mapd_extended_alive": extended_alive,
+    "mapd_out_alive": out_alive,
+    "download": None,
+    "map": None,
+  }
+
+  if HAS_PARAMS:
+    try:
+      result["enabled"] = bool(Params().get_bool("MapdEnabled"))
+    except Exception:
+      result["enabled"] = False
+
+  try:
+    progress = sm["mapdExtendedOut"].downloadProgress
+    result["download"] = mapd_progress_snapshot(progress)
+  except Exception:
+    result["download"] = None
+
+  try:
+    mapd_out = sm["mapdOut"]
+    result["map"] = {
+      "tile_loaded": bool(mapd_out.tileLoaded),
+      "road_name": str(mapd_out.roadName or ""),
+      "speed_limit_ms": float(mapd_out.speedLimit or 0.0),
+      "suggested_speed_ms": float(mapd_out.suggestedSpeed or 0.0),
+      "map_curve_speed_ms": float(mapd_out.mapCurveSpeed or 0.0),
+    }
+  except Exception:
+    result["map"] = None
+
+  return result
+
+
+def mapd_progress_message(download: Dict[str, Any], fallback: str = "mapd download") -> str:
+  if not download:
+    return fallback
+  downloaded = int(download.get("downloaded_files") or 0)
+  total = int(download.get("total_files") or 0)
+  percent = download.get("percent")
+  locations = ", ".join(download.get("locations") or [])
+  base = locations or fallback
+  if total > 0 and percent is not None:
+    return f"{base}: {downloaded}/{total} ({percent}%)"
+  return base
+
+
+def append_mapd_progress(job: Dict[str, Any], download: Dict[str, Any], last: str) -> str:
+  message = mapd_progress_message(download)
+  detail_parts = []
+  for item in download.get("location_details") or []:
+    location = item.get("location") or "unknown"
+    downloaded = int(item.get("downloaded_files") or 0)
+    total = int(item.get("total_files") or 0)
+    detail_parts.append(f"{location} {downloaded}/{total}")
+  if detail_parts:
+    message = f"{message}\n" + "\n".join(detail_parts)
+  if message != last:
+    jobs.append(job, message + "\n")
+  return message
+
+
+async def update_mapd_submaster(sm: Any, timeout_ms: int = 1000) -> None:
+  await asyncio.to_thread(sm.update, timeout_ms)
+
+
+async def get_mapd_status(timeout_ms: int = 1200) -> Dict[str, Any]:
+  from cereal import messaging
+
+  sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut"])
+  await update_mapd_submaster(sm, timeout_ms)
+  return mapd_status_snapshot(sm)
 
 
 def capture_tmux_log_sync() -> Tuple[int, str]:
@@ -66,6 +224,142 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
     if action_error:
       error, error_code = action_error
       jobs.finish(job, ok=False, result={"ok": False, "error": error, "error_code": error_code}, error=error, error_code=error_code)
+      return
+
+    if action == "mapd_download":
+      try:
+        download_path = normalize_mapd_download_path(body.get("path") or body.get("download_path") or "nation.KR")
+      except ValueError as e:
+        jobs.finish(
+          job,
+          ok=False,
+          result={"ok": False, "error": str(e), "error_code": "INVALID_MAPD_PATH"},
+          error=str(e),
+          error_code="INVALID_MAPD_PATH",
+        )
+        return
+
+      if HAS_PARAMS:
+        try:
+          Params().put_bool("MapdEnabled", True)
+        except Exception as e:
+          jobs.append(job, f"MapdEnabled set failed: {e}\n")
+
+      from cereal import messaging
+      pm = messaging.PubMaster(["mapdIn"])
+      sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut"])
+
+      jobs.progress(job, message="waiting for mapd", current=0, total=100, percent=0)
+      ready = False
+      wait_deadline = time.monotonic() + 20.0
+      while time.monotonic() < wait_deadline:
+        await update_mapd_submaster(sm, 1000)
+        if sm.alive.get("mapdExtendedOut") or sm.alive.get("mapdOut"):
+          ready = True
+          break
+        remaining = max(0.0, wait_deadline - time.monotonic())
+        waited = max(0.0, 20.0 - remaining)
+        jobs.progress(job, message="waiting for mapd", percent=int(min(30, waited / 20.0 * 30.0)))
+
+      if not ready:
+        jobs.finish(
+          job,
+          ok=False,
+          result={
+            "ok": False,
+            "error": "mapd is not publishing yet. Check MapdEnabled or reboot once.",
+            "error_code": "MAPD_UNAVAILABLE",
+          },
+          error="mapd unavailable",
+          error_code="MAPD_UNAVAILABLE",
+        )
+        return
+
+      jobs.append(job, f"$ mapd download {download_path}\n")
+      for _ in range(3):
+        send_mapd_input(pm, "download", str_value=download_path)
+        await asyncio.sleep(0.1)
+      jobs.progress(job, message=f"download requested: {download_path}", percent=35)
+
+      active_seen = False
+      last_progress_log = ""
+      start_deadline = time.monotonic() + 25.0
+      download_deadline = time.monotonic() + 2 * 60 * 60
+      last_snapshot: Dict[str, Any] = {}
+
+      while time.monotonic() < download_deadline:
+        await update_mapd_submaster(sm, 1000)
+        status = mapd_status_snapshot(sm)
+        download = status.get("download") or {}
+        last_snapshot = status
+
+        if download.get("active"):
+          active_seen = True
+          percent = download.get("percent")
+          jobs.progress(
+            job,
+            message=mapd_progress_message(download, "downloading map"),
+            percent=int(percent) if percent is not None else None,
+          )
+          last_progress_log = append_mapd_progress(job, download, last_progress_log)
+          continue
+
+        if active_seen:
+          if download.get("cancelled"):
+            jobs.finish(
+              job,
+              ok=False,
+              result={"ok": False, "error": "map download cancelled", "error_code": "MAPD_DOWNLOAD_CANCELLED", "status": status},
+              error="map download cancelled",
+              error_code="MAPD_DOWNLOAD_CANCELLED",
+            )
+            return
+
+          jobs.progress(job, message="map download complete", percent=100)
+          jobs.finish(job, ok=True, result={"ok": True, "out": "map download complete", "status": status})
+          return
+
+        if time.monotonic() > start_deadline:
+          jobs.finish(
+            job,
+            ok=False,
+            result={
+              "ok": False,
+              "error": "map download did not start",
+              "error_code": "MAPD_DOWNLOAD_NOT_STARTED",
+              "status": last_snapshot,
+            },
+            error="map download did not start",
+            error_code="MAPD_DOWNLOAD_NOT_STARTED",
+          )
+          return
+
+        jobs.progress(job, message="waiting for download progress", percent=40)
+
+      jobs.finish(
+        job,
+        ok=False,
+        result={"ok": False, "error": "map download timeout", "error_code": "MAPD_DOWNLOAD_TIMEOUT", "status": last_snapshot},
+        error="map download timeout",
+        error_code="MAPD_DOWNLOAD_TIMEOUT",
+      )
+      return
+
+    if action == "mapd_cancel_download":
+      from cereal import messaging
+      pm = messaging.PubMaster(["mapdIn"])
+      jobs.progress(job, message="cancel map download", current=1, total=1)
+      for _ in range(3):
+        send_mapd_input(pm, "cancelDownload")
+        await asyncio.sleep(0.1)
+      jobs.append(job, "$ mapd cancel download\n")
+      jobs.finish(job, ok=True, result={"ok": True, "out": "map download cancel requested"})
+      return
+
+    if action == "mapd_status":
+      jobs.progress(job, message="read mapd status", current=1, total=1)
+      status = await get_mapd_status()
+      jobs.finish(job, ok=True, result={"ok": True, "status": status, "out": json.dumps(status, ensure_ascii=False)})
       return
 
     if action == "git_pull":
@@ -650,6 +944,18 @@ async def dispatch_sync(request: web.Request, body: Dict[str, Any]) -> web.Respo
 
   try:
     REPO_DIR = "/data/openpilot"
+
+    if action == "mapd_status":
+      status = await get_mapd_status()
+      return web.json_response({"ok": True, "status": status})
+
+    if action == "mapd_cancel_download":
+      from cereal import messaging
+      pm = messaging.PubMaster(["mapdIn"])
+      for _ in range(3):
+        send_mapd_input(pm, "cancelDownload")
+        await asyncio.sleep(0.1)
+      return web.json_response({"ok": True, "out": "map download cancel requested"})
 
     if action == "git_pull":
       rc, out = run(["git", "pull"], cwd=REPO_DIR)

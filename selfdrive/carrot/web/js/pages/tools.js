@@ -361,6 +361,9 @@ function getToolCommandPreview(action, payload = {}) {
     case "git_branch_list": return "change branch";
     case "git_remote_set": return "change repository";
     case "git_remote_add": return `git remote add/set-url ${payload.name || ""}`.trim();
+    case "mapd_download": return `mapd download ${payload.path || "nation.KR"}`;
+    case "mapd_cancel_download": return "mapd cancel download";
+    case "mapd_status": return "mapd status";
     case "send_tmux_log": return "capture tmux";
     case "server_tmux_log": return "send tmux";
     case "install_required": return "install flask";
@@ -976,6 +979,90 @@ function didGitPullUpdate(result) {
   );
 }
 
+function mapdMsToKph(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.round(num * 3.6);
+}
+
+function formatMapdStatus(result = {}) {
+  const status = result.status || result;
+  const download = status.download || {};
+  const map = status.map || {};
+  const lines = [];
+  lines.push(`${getUIText("mapd_enabled", "Mapd enabled")}: ${status.enabled ? "ON" : "OFF"}`);
+  lines.push(`${getUIText("mapd_process", "Mapd process")}: ${status.mapd_alive ? "RUNNING" : "WAITING"}`);
+
+  if (download) {
+    const active = download.active ? getUIText("working", "Working") : "idle";
+    const downloaded = Number(download.downloaded_files || 0);
+    const total = Number(download.total_files || 0);
+    const percent = Number(download.percent);
+    const progress = total > 0
+      ? `${downloaded}/${total}${Number.isFinite(percent) ? ` (${Math.round(percent)}%)` : ""}`
+      : "-";
+    const locations = Array.isArray(download.locations) && download.locations.length ? download.locations.join(", ") : "-";
+    lines.push(`${getUIText("mapd_download", "Download")}: ${active}`);
+    lines.push(`${getUIText("mapd_progress", "Progress")}: ${progress}`);
+    lines.push(`${getUIText("mapd_locations", "Locations")}: ${locations}`);
+  }
+
+  if (map) {
+    const speedLimit = mapdMsToKph(map.speed_limit_ms);
+    const suggested = mapdMsToKph(map.suggested_speed_ms);
+    const curve = mapdMsToKph(map.map_curve_speed_ms);
+    lines.push(`${getUIText("mapd_tile", "Tile")}: ${map.tile_loaded ? "LOADED" : "NO TILE"}`);
+    lines.push(`${getUIText("mapd_road", "Road")}: ${map.road_name || "-"}`);
+    lines.push(`LIMIT ${speedLimit || "--"} / SUG ${suggested || "--"} / CURVE ${curve || "--"} km/h`);
+  }
+
+  return lines.join("\n");
+}
+
+async function runMapdDownload(path, label) {
+  const cleanPath = String(path || "").trim();
+  if (!cleanPath) return null;
+  const title = getUIText("mapd_maps", "OSM Maps");
+  const msg = getUIText(
+    "mapd_download_confirm",
+    "Download OSM map data?\n\n{label}",
+    { label: label || cleanPath }
+  );
+  if (!await appConfirm(msg, { title })) return null;
+
+  const result = await runTool("mapd_download", { path: cleanPath, label: label || cleanPath });
+  if (result?.status) {
+    toolsLogNotice(formatMapdStatus(result.status), { label: "mapd_status", meta: false });
+  }
+  return result;
+}
+
+async function chooseMapdDownloadPath() {
+  const selected = await openAppDialog({
+    mode: "choice",
+    title: getUIText("mapd_maps", "OSM Maps"),
+    message: getUIText("mapd_select_prompt", "Select a map area to download."),
+    cancelLabel: UI_STRINGS[LANG].cancel || "Cancel",
+    choices: [
+      { label: getUIText("mapd_area_korea", "South Korea"), value: "nation.KR" },
+      { label: getUIText("mapd_area_japan", "Japan"), value: "nation.JP" },
+      { label: getUIText("mapd_area_us", "United States"), value: "nation.US" },
+      { label: getUIText("mapd_area_custom", "Custom path"), value: "__custom__" },
+    ],
+  });
+  if (!selected) return null;
+  if (selected !== "__custom__") return selected;
+  const typed = await appPrompt(
+    getUIText("mapd_custom_prompt", "Enter mapd download path.\nExample: nation.KR"),
+    {
+      title: getUIText("mapd_maps", "OSM Maps"),
+      defaultValue: "nation.KR",
+      placeholder: "nation.KR",
+    }
+  );
+  return typed ? String(typed).trim() : null;
+}
+
 async function confirmText(msg, placeholder = "") {
   const v = await appPrompt(msg, {
     title: UI_STRINGS[LANG].input_title || "Input",
@@ -1132,6 +1219,46 @@ function initToolsPage() {
       messageHtml: toolsMetaInfoDialogText,
       copyText: buildToolsMetaPlainText(toolsMetaLastValues || {}),
     });
+  });
+
+  bindOnce("btnMapdDownloadKorea", async () => {
+    try {
+      await runMapdDownload("nation.KR", getUIText("mapd_area_korea", "South Korea"));
+    } catch (e) {
+      showError("mapd_download", e);
+    }
+  });
+
+  bindOnce("btnMapdDownloadCustom", async () => {
+    try {
+      const path = await chooseMapdDownloadPath();
+      if (!path) return;
+      await runMapdDownload(path, path);
+    } catch (e) {
+      showError("mapd_download", e);
+    }
+  });
+
+  bindOnce("btnMapdStatus", async () => {
+    try {
+      const result = await postJson("/api/tools", { action: "mapd_status" });
+      const text = formatMapdStatus(result.status || result);
+      toolsLogNotice(text, { label: "mapd_status" });
+      await appAlert(text, { title: getUIText("mapd_status", "map status") });
+    } catch (e) {
+      showError("mapd_status", e);
+    }
+  });
+
+  bindOnce("btnMapdCancel", async () => {
+    const title = getUIText("mapd_maps", "OSM Maps");
+    const msg = getUIText("mapd_cancel_confirm", "Cancel the current map download?");
+    if (!await appConfirm(msg, { title, danger: true })) return;
+    try {
+      await runTool("mapd_cancel_download");
+    } catch (e) {
+      showError("mapd_cancel_download", e);
+    }
   });
 
   bindOnce("btnGitPull", async () => {

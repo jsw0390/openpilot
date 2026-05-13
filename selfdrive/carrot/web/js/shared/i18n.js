@@ -250,10 +250,15 @@ function renderUIText() {
   // Tools
   setText("toolsTitle", s.tools);
   setText("gitCommandsTitle", getUIText("git_commands", "Git Commands"));
+  setText("mapdToolsTitle", getUIText("mapd_maps", "OSM Maps"));
   setText("userSystemTitle", getUIText("user_system", "User / System"));
   setText("toolsQuickLinkTitle", getUIText("quick_link", "Link"));
   setText("userSettingsTitle", getUIText("section_settings_backup", "Settings"));
   setText("btnDeviceInfo", getUIText("carrot_info", "Carrot Info"));
+  setText("btnMapdDownloadKorea", getUIText("mapd_download_korea", "Korea map"));
+  setText("btnMapdDownloadCustom", getUIText("mapd_download_custom", "choose map"));
+  setText("btnMapdStatus", getUIText("mapd_status", "map status"));
+  setText("btnMapdCancel", getUIText("mapd_cancel", "cancel download"));
   setText("btnGitRemote", "change repository");
   setText("btnGitBranch", "change branch");
   setText("btnGitAddRemote", "add remote");
