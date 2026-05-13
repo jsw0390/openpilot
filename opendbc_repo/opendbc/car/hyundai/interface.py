@@ -174,6 +174,7 @@ class CarInterface(CarInterfaceBase):
       params.put_int("CustomSteerMax", 400)    # Max steering torque command
       params.put_int("CustomSR", 0)            # Use live steer ratio
       params.put_int("SteerRatioRate", 100)    # Live steer ratio scale
+      params.put_int("AutoEngage", 2)          # Steering ON + cruise standby
       # Vision cruise: conservative camera-only lead following with road-limit target.
       params.put_int("RayVisionCruiseControl", 2)
       params.put_int("RayVisionCruiseRoadOffset", 5)

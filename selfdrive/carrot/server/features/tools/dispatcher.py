@@ -262,6 +262,9 @@ def mapd_status_snapshot(sm: Any, include_local: bool = False) -> Dict[str, Any]
     "mapd_out_alive": out_alive,
     "download": None,
     "map": None,
+    "manager": None,
+    "device": None,
+    "car": None,
   }
 
   if HAS_PARAMS:
@@ -287,6 +290,32 @@ def mapd_status_snapshot(sm: Any, include_local: bool = False) -> Dict[str, Any]
     }
   except Exception:
     result["map"] = None
+
+  try:
+    manager_state = sm["managerState"]
+    for proc in manager_state.processes:
+      if str(proc.name) == "mapd":
+        result["manager"] = {
+          "running": bool(proc.running),
+          "should_be_running": bool(proc.shouldBeRunning),
+          "pid": int(proc.pid),
+          "exit_code": int(proc.exitCode),
+        }
+        break
+  except Exception:
+    result["manager"] = None
+
+  try:
+    device_state = sm["deviceState"]
+    result["device"] = {"started": bool(device_state.started)}
+  except Exception:
+    result["device"] = None
+
+  try:
+    car_state = sm["carState"]
+    result["car"] = {"gear_shifter": str(car_state.gearShifter)}
+  except Exception:
+    result["car"] = None
 
   if include_local:
     result["local_data"] = mapd_local_data_snapshot()
@@ -330,7 +359,7 @@ async def update_mapd_submaster(sm: Any, timeout_ms: int = 1000) -> None:
 async def get_mapd_status(timeout_ms: int = 1200) -> Dict[str, Any]:
   from cereal import messaging
 
-  sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut"])
+  sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut", "managerState", "deviceState", "carState"])
   await update_mapd_submaster(sm, timeout_ms)
   return mapd_status_snapshot(sm, include_local=True)
 
@@ -414,52 +443,45 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
 
       from cereal import messaging
       pm = messaging.PubMaster(["mapdIn"])
-      sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut"])
+      sm = messaging.SubMaster(["mapdOut", "mapdExtendedOut", "managerState", "deviceState", "carState"])
 
       jobs.progress(job, message="waiting for mapd", current=0, total=100, percent=0)
       ready = False
-      wait_deadline = time.monotonic() + 20.0
+      wait_seconds = 8.0
+      wait_deadline = time.monotonic() + wait_seconds
       while time.monotonic() < wait_deadline:
         await update_mapd_submaster(sm, 1000)
         if sm.alive.get("mapdExtendedOut") or sm.alive.get("mapdOut"):
           ready = True
           break
         remaining = max(0.0, wait_deadline - time.monotonic())
-        waited = max(0.0, 20.0 - remaining)
-        jobs.progress(job, message="waiting for mapd", percent=int(min(30, waited / 20.0 * 30.0)))
+        waited = max(0.0, wait_seconds - remaining)
+        jobs.progress(job, message="waiting for mapd", percent=int(min(15, waited / wait_seconds * 15.0)))
 
       if not ready:
-        set_mapd_download_active(False)
-        jobs.finish(
-          job,
-          ok=False,
-          result={
-            "ok": False,
-            "error": "mapd is not publishing yet. Check MapdEnabled or reboot once.",
-            "error_code": "MAPD_UNAVAILABLE",
-          },
-          error="mapd unavailable",
-          error_code="MAPD_UNAVAILABLE",
-        )
-        return
+        jobs.append(job, "mapd is not publishing yet; sending download request anyway\n")
 
       jobs.append(job, f"$ mapd download {download_path}\n")
-      for _ in range(3):
-        send_mapd_input(pm, "download", str_value=download_path)
-        await asyncio.sleep(0.1)
-      jobs.progress(job, message=f"download requested: {download_path}", percent=35)
+      jobs.progress(job, message=f"download requested: {download_path}", percent=20)
 
       active_seen = False
       last_progress_log = ""
-      start_deadline = time.monotonic() + 25.0
+      start_deadline = time.monotonic() + 120.0
       download_deadline = time.monotonic() + 2 * 60 * 60
       last_snapshot: Dict[str, Any] = {}
+      last_request_time = 0.0
 
       while time.monotonic() < download_deadline:
+        now = time.monotonic()
+        if not active_seen and now - last_request_time >= 2.0:
+          send_mapd_input(pm, "download", str_value=download_path)
+          last_request_time = now
+
         await update_mapd_submaster(sm, 1000)
         status = mapd_status_snapshot(sm)
         download = status.get("download") or {}
         last_snapshot = status
+        ready = ready or bool(status.get("mapd_alive"))
 
         if download.get("active"):
           active_seen = True
@@ -498,7 +520,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
             ok=False,
             result={
               "ok": False,
-              "error": "map download did not start",
+              "error": "map download did not start. Keep the device powered and retry after mapd finishes starting.",
               "error_code": "MAPD_DOWNLOAD_NOT_STARTED",
               "status": last_snapshot,
             },
@@ -507,7 +529,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
           )
           return
 
-        jobs.progress(job, message="waiting for download progress", percent=40)
+        jobs.progress(job, message="waiting for download progress", percent=40 if ready else 25)
 
       set_mapd_download_active(False)
       jobs.finish(
