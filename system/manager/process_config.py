@@ -86,7 +86,7 @@ def enable_webrtc(started, params, CP: car.CarParams) -> bool:
   return params.get_int("DisableDM") == 2
 
 def enable_mapd(started, params, CP: car.CarParams) -> bool:
-  return not PC and params.get_bool("MapdEnabled")
+  return not PC and params.get_bool("MapdEnabled") and (started or params.get_bool("MapdDownloadActive"))
 
 procs = [
   DaemonProcess("manage_athenad", "system.athena.manage_athenad", "AthenadPid"),

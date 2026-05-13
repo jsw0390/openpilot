@@ -18,6 +18,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -50,6 +51,15 @@ def normalize_mapd_download_path(path: Any) -> str:
     if len(part) > 128 or MAPD_DOWNLOAD_PATH_RE.match(part) is None:
       raise ValueError(f"invalid mapd download path: {part}")
   return ",".join(parts)
+
+
+def set_mapd_download_active(active: bool) -> None:
+  if not HAS_PARAMS:
+    return
+  try:
+    Params().put_bool("MapdDownloadActive", bool(active))
+  except Exception:
+    pass
 
 
 def set_mapd_input_type(mapd_in: Any, input_type: str) -> None:
@@ -242,6 +252,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
       if HAS_PARAMS:
         try:
           Params().put_bool("MapdEnabled", True)
+          set_mapd_download_active(True)
         except Exception as e:
           jobs.append(job, f"MapdEnabled set failed: {e}\n")
 
@@ -262,6 +273,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
         jobs.progress(job, message="waiting for mapd", percent=int(min(30, waited / 20.0 * 30.0)))
 
       if not ready:
+        set_mapd_download_active(False)
         jobs.finish(
           job,
           ok=False,
@@ -306,6 +318,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
 
         if active_seen:
           if download.get("cancelled"):
+            set_mapd_download_active(False)
             jobs.finish(
               job,
               ok=False,
@@ -316,10 +329,12 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
             return
 
           jobs.progress(job, message="map download complete", percent=100)
+          set_mapd_download_active(False)
           jobs.finish(job, ok=True, result={"ok": True, "out": "map download complete", "status": status})
           return
 
         if time.monotonic() > start_deadline:
+          set_mapd_download_active(False)
           jobs.finish(
             job,
             ok=False,
@@ -336,6 +351,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
 
         jobs.progress(job, message="waiting for download progress", percent=40)
 
+      set_mapd_download_active(False)
       jobs.finish(
         job,
         ok=False,
@@ -346,6 +362,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
       return
 
     if action == "mapd_cancel_download":
+      set_mapd_download_active(True)
       from cereal import messaging
       pm = messaging.PubMaster(["mapdIn"])
       jobs.progress(job, message="cancel map download", current=1, total=1)
@@ -353,6 +370,7 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
         send_mapd_input(pm, "cancelDownload")
         await asyncio.sleep(0.1)
       jobs.append(job, "$ mapd cancel download\n")
+      set_mapd_download_active(False)
       jobs.finish(job, ok=True, result={"ok": True, "out": "map download cancel requested"})
       return
 
@@ -918,6 +936,8 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
 
     jobs.finish(job, ok=False, result={"ok": False, "error": f"unknown action: {action}"}, error=f"unknown action: {action}")
   except asyncio.TimeoutError:
+    if action in ("mapd_download", "mapd_cancel_download"):
+      set_mapd_download_active(False)
     jobs.finish(
       job,
       ok=False,
@@ -926,6 +946,8 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
       error_code="CMD_TIMEOUT",
     )
   except Exception as e:
+    if action in ("mapd_download", "mapd_cancel_download"):
+      set_mapd_download_active(False)
     jobs.append(job, f"\n{traceback.format_exc()}")
     jobs.finish(job, ok=False, result={"ok": False, "error": str(e)}, error=str(e))
 
@@ -950,11 +972,13 @@ async def dispatch_sync(request: web.Request, body: Dict[str, Any]) -> web.Respo
       return web.json_response({"ok": True, "status": status})
 
     if action == "mapd_cancel_download":
+      set_mapd_download_active(True)
       from cereal import messaging
       pm = messaging.PubMaster(["mapdIn"])
       for _ in range(3):
         send_mapd_input(pm, "cancelDownload")
         await asyncio.sleep(0.1)
+      set_mapd_download_active(False)
       return web.json_response({"ok": True, "out": "map download cancel requested"})
 
     if action == "git_pull":
