@@ -715,7 +715,8 @@ class VCruiseCarrot:
       return False, d_final
 
   def _ray_ipedal_enabled(self):
-    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
+    # Disabled until Ray EV cruise-button control is proven safe on-road.
+    return False
 
   def _ray_ipedal_set_cruise(self, enable, reason):
     self._activate_cruise = enable

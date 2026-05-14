@@ -476,7 +476,7 @@ class CarController(CarControllerBase):
       return can_sends
     ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
     if ray_ev_op_long:
-      cancel_request = (not CC.enabled and CS.out.cruiseState.enabled) or (CS.out.activateCruise < 0 and CS.out.vEgo > 30 / 3.6)
+      cancel_request = False
     else:
       cancel_request = CC.cruiseControl.cancel or CS.out.activateCruise < 0
 
@@ -591,9 +591,11 @@ class CarController(CarControllerBase):
 
       if CS.out.cruiseState.enabled and current <= 0:
         ray_ev_using_estimate = True
+        self.ray_ev_estimated_cruise_speed = max(self.ray_ev_estimated_cruise_speed, min(160, max(30, int(v_ego_kph + 0.5))))
         current = self.ray_ev_estimated_cruise_speed
 
       self.ray_ev_cruise_enabled_last = CS.out.cruiseState.enabled
+      self.activateCruise = 0
 
     send_button = 0
     activate_cruise = False
@@ -601,7 +603,7 @@ class CarController(CarControllerBase):
 
     if CC.enabled:
       if not CS.out.cruiseState.enabled:
-        if (hud_control.leadVisible or v_ego_kph > 10.0) and (is_ray_ev or self.activateCruise == 0):
+        if (hud_control.leadVisible or v_ego_kph > 10.0) and not is_ray_ev and self.activateCruise == 0:
           send_button = resume_button
           activate_cruise = self.activateCruise == 0
           self.activateCruise = 1
@@ -614,9 +616,9 @@ class CarController(CarControllerBase):
       elif target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
-        if not (is_ray_ev and hud_control.leadVisible):
+        if not is_ray_ev:
           send_button = Buttons.RES_ACCEL
-    elif CS.out.activateCruise: #CC.cruiseControl.activate:
+    elif CS.out.activateCruise and not is_ray_ev: #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
         send_button = resume_button
@@ -631,7 +633,7 @@ class CarController(CarControllerBase):
       return 0
 
     speed_diff = self.prev_clu_speed - current
-    spamming_max = self.button_spam1
+    spamming_max = 1 if is_ray_ev else self.button_spam1
     if CS.cruise_buttons[-1] != Buttons.NONE:
       self.last_button_frame = self.frame
       self.button_wait = self.button_spam2
