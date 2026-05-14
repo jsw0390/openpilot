@@ -474,8 +474,14 @@ class CarController(CarControllerBase):
     can_sends = []
     if CS.out.brakePressed or CS.out.brakeHoldActive:
       return can_sends
+    ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
+    if ray_ev_op_long:
+      cancel_request = (not CC.enabled and CS.out.cruiseState.enabled) or (CS.out.activateCruise < 0 and CS.out.vEgo > 30 / 3.6)
+    else:
+      cancel_request = CC.cruiseControl.cancel or CS.out.activateCruise < 0
+
     if use_clu11:
-      if CC.cruiseControl.cancel or CS.out.activateCruise < 0:
+      if cancel_request:
         can_sends.append(hyundaican.create_clu11(self.packer, self.frame, CS.clu11, Buttons.CANCEL, self.CP))
       elif False: #CC.cruiseControl.resume:
         # send resume at a max freq of 10Hz
@@ -506,7 +512,7 @@ class CarController(CarControllerBase):
 
       if (self.frame - self.last_button_frame) * DT_CTRL > 0.25:
         # cruise cancel
-        if CC.cruiseControl.cancel or CS.out.activateCruise < 0:
+        if cancel_request:
           if (self.frame - self.last_button_frame) * DT_CTRL > 0.1:
             print("cruiseControl.cancel222222")
             if self.CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
@@ -599,9 +605,7 @@ class CarController(CarControllerBase):
           send_button = resume_button
           activate_cruise = self.activateCruise == 0
           self.activateCruise = 1
-      elif CC.cruiseControl.resume:
-        if is_ray_ev:
-          self.activateCruise = 0
+      elif CC.cruiseControl.resume and not is_ray_ev:
         send_button = resume_button
       elif target < current and current>= 31 and self.speed_from_pcm != 1:
         if is_ray_ev:
@@ -610,7 +614,8 @@ class CarController(CarControllerBase):
       elif target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
-        send_button = Buttons.RES_ACCEL
+        if not (is_ray_ev and hud_control.leadVisible):
+          send_button = Buttons.RES_ACCEL
     elif CS.out.activateCruise: #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
