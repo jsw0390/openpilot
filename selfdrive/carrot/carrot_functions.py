@@ -7,6 +7,7 @@ import numpy as np
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import MyMovingAverage
+from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed
 from openpilot.selfdrive.selfdrived.events import Events
 
 EventName = log.OnroadEvent.EventName
@@ -41,9 +42,6 @@ class TrafficState(Enum):
     return self.name
 
 A_CRUISE_MAX_BP_CARROT = [0., 10 * CV.KPH_TO_MS, 40 * CV.KPH_TO_MS, 60 * CV.KPH_TO_MS, 80 * CV.KPH_TO_MS, 110 * CV.KPH_TO_MS, 140 * CV.KPH_TO_MS]
-RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
-RAY_VTURN_SHARP_KPH = 35.0
-RAY_CURVE_DROP_KPH = 12.0
 
 class CarrotPlanner:
   def __init__(self, CP=None):
@@ -210,30 +208,6 @@ class CarrotPlanner:
 
   def _ray_vision_cruise_enabled(self):
     return self.is_ray_ev and self.rayVisionCruiseControl > 0
-
-  def _ray_desired_speed_allowed(self, carrot_man, v_cruise_kph):
-    if not self._ray_vision_cruise_enabled():
-      return True
-
-    source = str(getattr(carrot_man, "desiredSource", "") or "")
-    if source == "road":
-      return False
-    if source not in RAY_CURVE_SOURCES:
-      return True
-
-    desired_kph = float(getattr(carrot_man, "desiredSpeed", 0.0) or 0.0)
-    if not (0.0 < desired_kph < 200.0):
-      return False
-
-    drop_kph = float(v_cruise_kph) - desired_kph
-    if drop_kph < 7.0:
-      return False
-
-    raw_vturn_kph = abs(float(getattr(carrot_man, "vTurnSpeed", 0.0) or 0.0))
-    if source == "vturn" and raw_vturn_kph > 0.0:
-      return raw_vturn_kph <= RAY_VTURN_SHARP_KPH
-
-    return drop_kph >= RAY_CURVE_DROP_KPH
 
   def get_carrot_accel(self, v_ego):
     cruiseMaxVals = [self.cruiseMaxVals0, self.cruiseMaxVals1, self.cruiseMaxVals2, self.cruiseMaxVals3, self.cruiseMaxVals4, self.cruiseMaxVals5, self.cruiseMaxVals6]
@@ -500,7 +474,10 @@ class CarrotPlanner:
       atc_active = self.activeCarrot > 1 and 0 < self.xDistToTurn < 100
       self.atcType = carrot_man.atcType
 
-      if self._ray_desired_speed_allowed(carrot_man, v_cruise_kph):
+      if ray_desired_speed_allowed(
+        carrot_man.desiredSource, carrot_man.desiredSpeed, v_cruise_kph, carrot_man.vTurnSpeed,
+        enabled=self._ray_vision_cruise_enabled(), disabled_result=True,
+      ):
         v_cruise_kph = min(v_cruise_kph, carrot_man.desiredSpeed)
 
     return v_cruise_kph, atc_active

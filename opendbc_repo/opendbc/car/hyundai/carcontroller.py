@@ -618,20 +618,22 @@ class CarController(CarControllerBase):
     send_button = 0
     activate_cruise = False
     resume_button = Buttons.RES_ACCEL
+    ray_ev_activation_requested = is_ray_ev and CS.out.activateCruise == 2
+    ray_ev_activation_allowed = v_ego_kph > 10.0 or (v_ego_kph <= 0.5 and hud_control.leadVisible)
 
     if CC.enabled:
-      if is_ray_ev and CS.out.activateCruise == 2 and v_ego_kph > 10.0:
+      if ray_ev_activation_requested and ray_ev_activation_allowed:
         self.ray_ev_activate_retry = max(self.ray_ev_activate_retry, 12)
         send_button = Buttons.SET_DECEL
         activate_cruise = True
         self.activateCruise = 1
-      elif is_ray_ev and self.ray_ev_activate_retry > 0 and v_ego_kph > 10.0 and not CS.out.cruiseState.enabled:
+      elif is_ray_ev and self.ray_ev_activate_retry > 0 and ray_ev_activation_allowed and not CS.out.cruiseState.enabled:
         send_button = Buttons.SET_DECEL
         activate_cruise = True
         self.activateCruise = 1
         self.ray_ev_activate_retry -= 1
       elif not CS.out.cruiseState.enabled and not ray_ev_cruise_active:
-        if is_ray_ev and CS.out.activateCruise == 2 and v_ego_kph > 10.0:
+        if ray_ev_activation_requested and ray_ev_activation_allowed:
           self.ray_ev_activate_retry = max(self.ray_ev_activate_retry, 12)
           send_button = Buttons.SET_DECEL
           activate_cruise = True
@@ -651,7 +653,10 @@ class CarController(CarControllerBase):
           self.activateCruise = 0
         lead_blocking = (
           is_ray_ev and hud_control.leadVisible and hud_control.leadDistance > 0.0 and
-          (hud_control.leadRelSpeed < -0.5 or hud_control.leadDistance < max(18.0, CS.out.vEgo * 1.4))
+          (
+            (hud_control.leadRelSpeed < -1.0 and hud_control.leadDistance < max(22.0, CS.out.vEgo * 2.0)) or
+            hud_control.leadDistance < max(12.0, CS.out.vEgo * 1.0)
+          )
         )
         if not lead_blocking:
           send_button = Buttons.RES_ACCEL

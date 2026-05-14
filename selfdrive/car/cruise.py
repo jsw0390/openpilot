@@ -3,6 +3,7 @@ import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
+from openpilot.selfdrive.carrot.ray_vision import RAY_CURVE_SOURCES, ray_desired_speed_allowed, ray_lead_target_speed_kph
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -17,9 +18,6 @@ V_CRUISE_UNSET = 255
 V_CRUISE_INITIAL = 40
 V_CRUISE_INITIAL_EXPERIMENTAL_MODE = 105
 IMPERIAL_INCREMENT = round(CV.MPH_TO_KPH, 1)  # round here to avoid rounding errors incrementing set speed
-RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
-RAY_VTURN_SHARP_KPH = 35.0
-RAY_CURVE_DROP_KPH = 12.0
 
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
@@ -750,28 +748,6 @@ class VCruiseCarrot:
       self._cruise_ready = enable == -2
     self._add_log(reason)
 
-  def _ray_desired_speed_allowed(self, v_cruise_kph):
-    if not self._ray_ipedal_enabled():
-      return False
-
-    source = str(self.desiredSource or "")
-    if source not in RAY_CURVE_SOURCES:
-      return source != "road"
-
-    desired_kph = float(self.desiredSpeed)
-    if not (0.0 < desired_kph < 200.0):
-      return False
-
-    drop_kph = float(v_cruise_kph) - desired_kph
-    if drop_kph < 7.0:
-      return False
-
-    raw_vturn_kph = abs(float(self.vTurnSpeed or 0.0))
-    if source == "vturn" and raw_vturn_kph > 0.0:
-      return raw_vturn_kph <= RAY_VTURN_SHARP_KPH
-
-    return drop_kph >= RAY_CURVE_DROP_KPH
-
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
     if not self._ray_ipedal_enabled():
       self._ray_ipedal_active = False
@@ -781,7 +757,10 @@ class VCruiseCarrot:
 
     v_ego_kph = self.v_ego_kph_set
     target_kph = float(v_cruise_kph)
-    desired_allowed = self._ray_desired_speed_allowed(v_cruise_kph)
+    desired_allowed = ray_desired_speed_allowed(
+      self.desiredSource, self.desiredSpeed, v_cruise_kph, self.vTurnSpeed,
+      enabled=self._ray_ipedal_enabled(), disabled_result=False,
+    )
     if desired_allowed and 0 < self.desiredSpeed < 200:
       target_kph = min(target_kph, float(self.desiredSpeed))
     lead_target_kph = self._ray_lead_target_kph(CS, target_kph)
@@ -842,18 +821,10 @@ class VCruiseCarrot:
     if not self.lead_radar and self.lead_prob < self.rayVisionCruiseLeadProb:
       return None
 
-    desired_dist = max(10.0, CS.vEgo * (1.2 + self.rayVisionCruiseTFollowAdd))
-    closing = self.v_rel < -0.5 and self.d_rel < max(45.0, CS.vEgo * 3.0)
-    too_close = self.d_rel < desired_dist
-    if not closing and not too_close:
-      return None
-
-    target_kph = min(float(cruise_kph), max(0.0, self.v_lead_kph) + (0.0 if too_close else 3.0))
-    if too_close:
-      shortfall = max(0.0, desired_dist - self.d_rel)
-      target_kph = min(target_kph, self.v_ego_kph_set - min(15.0, 4.0 + shortfall * 0.8))
-
-    return max(30.0, target_kph)
+    return ray_lead_target_speed_kph(
+      CS.vEgo, self.d_rel, self.v_rel, self.v_lead_kph, cruise_kph, self.rayVisionCruiseTFollowAdd,
+      lead_prob=self.lead_prob, lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb,
+    )
 
   def _update_cruise_state(self, CS, CC, v_cruise_kph):
     if not CC.enabled:

@@ -28,6 +28,7 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
+from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph
 
 from openpilot.selfdrive.carrot.carrot_controls import CarrotControls
 
@@ -36,10 +37,6 @@ LaneChangeState = log.LaneChangeState
 LaneChangeDirection = log.LaneChangeDirection
 
 ACTUATOR_FIELDS = tuple(car.CarControl.Actuators.schema.fields.keys())
-
-RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
-RAY_VTURN_SHARP_KPH = 35.0
-RAY_CURVE_DROP_KPH = 12.0
 
 
 class Controls:
@@ -82,25 +79,6 @@ class Controls:
       self.LaC = LatControlTorque(self.CP, self.CI)
     self.carrot_controls = CarrotControls(self.CP)
 
-  def _ray_curve_desired_allowed(self, carrot_man, base_cruise_kph: float) -> bool:
-    source = str(getattr(carrot_man, "desiredSource", "") or "")
-    if source not in RAY_CURVE_SOURCES:
-      return source != "road"
-
-    desired_kph = float(getattr(carrot_man, "desiredSpeed", 0.0) or 0.0)
-    if not (0.0 < desired_kph < 200.0):
-      return False
-
-    drop_kph = base_cruise_kph - desired_kph
-    if drop_kph < 7.0:
-      return False
-
-    raw_vturn_kph = abs(float(getattr(carrot_man, "vTurnSpeed", 0.0) or 0.0))
-    if source == "vturn" and raw_vturn_kph > 0.0:
-      return raw_vturn_kph <= RAY_VTURN_SHARP_KPH
-
-    return drop_kph >= RAY_CURVE_DROP_KPH
-
   def _ray_lead_target_speed(self, CS, base_cruise_kph: float) -> float | None:
     lead = self.sm['radarState'].leadOne
     if not lead.status or CS.vEgo < 1.0:
@@ -113,19 +91,10 @@ class Controls:
       return None
 
     t_follow_add = np.clip(self.params.get_float("RayVisionCruiseTFollowAdd") / 100.0, 0.0, 1.0)
-    desired_dist = max(10.0, CS.vEgo * (1.2 + t_follow_add))
-    closing = lead.vRel < -0.5 and lead.dRel < max(45.0, CS.vEgo * 3.0)
-    too_close = lead.dRel < desired_dist
-    if not closing and not too_close:
-      return None
-
-    lead_kph = max(0.0, lead.vLeadK * CV.MS_TO_KPH)
-    target_kph = min(base_cruise_kph, lead_kph + (0.0 if too_close else 3.0))
-    if too_close:
-      shortfall = max(0.0, desired_dist - lead.dRel)
-      target_kph = min(target_kph, CS.vEgo * CV.MS_TO_KPH - min(15.0, 4.0 + shortfall * 0.8))
-
-    return max(30.0, target_kph)
+    return ray_lead_target_speed_kph(
+      CS.vEgo, lead.dRel, lead.vRel, lead.vLeadK * CV.MS_TO_KPH, base_cruise_kph, t_follow_add,
+      lead_prob=lead_prob, lead_radar=lead_radar, min_prob=min_prob,
+    )
 
   def update(self):
     self.sm.update(15)
@@ -289,7 +258,10 @@ class Controls:
         ray_speed_candidates.append(restore_kph * CV.KPH_TO_MS)
       carrot_man = self.sm['carrotMan']
       carrot_desired_kph = float(carrot_man.desiredSpeed)
-      if 0 < carrot_desired_kph < 200 and self._ray_curve_desired_allowed(carrot_man, base_cruise_kph):
+      if 0 < carrot_desired_kph < 200 and ray_desired_speed_allowed(
+        carrot_man.desiredSource, carrot_desired_kph, base_cruise_kph, carrot_man.vTurnSpeed,
+        enabled=True, disabled_result=False,
+      ):
         ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
       lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
       if lead_target_kph is not None:
