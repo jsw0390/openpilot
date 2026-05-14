@@ -227,7 +227,18 @@ class Controls:
 
     lp = self.sm['longitudinalPlan']
     is_ray_ev = "KIA_RAY_EV" in str(self.CP.carFingerprint)
-    if self.CP.pcmCruise:
+    if is_ray_ev:
+      ray_speed_candidates = []
+      if setSpeed > 0.1:
+        ray_speed_candidates.append(setSpeed)
+      carrot_desired_kph = float(self.sm['carrotMan'].desiredSpeed)
+      if 0 < carrot_desired_kph < 200:
+        ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
+      road_limit_kph = float(self.sm['carrotMan'].nRoadLimitSpeed)
+      if road_limit_kph > 0:
+        ray_speed_candidates.append((road_limit_kph + self.params.get_int("RayVisionCruiseRoadOffset")) * CV.KPH_TO_MS)
+      hudControl.setSpeed = float(max(30 / 3.6, min(ray_speed_candidates) if ray_speed_candidates else 30 / 3.6))
+    elif self.CP.pcmCruise:
       speed_from_pcm = self.params.get_int("SpeedFromPCM")
       if speed_from_pcm == 1: #toyota
         hudControl.setSpeed = float(CS.vCruiseCluster * CV.KPH_TO_MS)
@@ -238,10 +249,7 @@ class Controls:
       else:
         hudControl.setSpeed = float(max(30/3.6, setSpeed))
     else:
-      if is_ray_ev:
-        hudControl.setSpeed = float(max(30 / 3.6, min(setSpeed, desired_kph * CV.KPH_TO_MS)))
-      else:
-        hudControl.setSpeed = setSpeed if lp.xState == 3 else float(desired_kph * CV.KPH_TO_MS)
+      hudControl.setSpeed = setSpeed if lp.xState == 3 else float(desired_kph * CV.KPH_TO_MS)
     hudControl.speedVisible = CC.enabled
     hudControl.lanesVisible = CC.enabled
     hudControl.leadVisible = self.sm['longitudinalPlan'].hasLead

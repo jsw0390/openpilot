@@ -476,7 +476,7 @@ class CarController(CarControllerBase):
       return can_sends
     ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
     if ray_ev_op_long:
-      cancel_request = False
+      cancel_request = CS.out.activateCruise < 0 and CS.out.vEgo > 30 / 3.6
     else:
       cancel_request = CC.cruiseControl.cancel or CS.out.activateCruise < 0
 
@@ -603,7 +603,11 @@ class CarController(CarControllerBase):
 
     if CC.enabled:
       if not CS.out.cruiseState.enabled:
-        if (hud_control.leadVisible or v_ego_kph > 10.0) and not is_ray_ev and self.activateCruise == 0:
+        if is_ray_ev and CS.out.activateCruise == 2 and v_ego_kph > 10.0:
+          send_button = Buttons.SET_DECEL
+          activate_cruise = True
+          self.activateCruise = 1
+        elif (hud_control.leadVisible or v_ego_kph > 10.0) and not is_ray_ev and self.activateCruise == 0:
           send_button = resume_button
           activate_cruise = self.activateCruise == 0
           self.activateCruise = 1
@@ -616,12 +620,12 @@ class CarController(CarControllerBase):
       elif target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
-        if not is_ray_ev:
+        if not is_ray_ev or not hud_control.leadVisible:
           send_button = Buttons.RES_ACCEL
-    elif CS.out.activateCruise and not is_ray_ev: #CC.cruiseControl.activate:
+    elif CS.out.activateCruise and (not is_ray_ev or CS.out.activateCruise == 2): #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
-        send_button = resume_button
+        send_button = Buttons.SET_DECEL if is_ray_ev else resume_button
         activate_cruise = True
 
     if CS.out.brakePressed or CS.out.gasPressed:

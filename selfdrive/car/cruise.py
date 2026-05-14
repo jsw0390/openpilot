@@ -715,8 +715,7 @@ class VCruiseCarrot:
       return False, d_final
 
   def _ray_ipedal_enabled(self):
-    # Disabled until Ray EV cruise-button control is proven safe on-road.
-    return False
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
 
   def _ray_ipedal_set_cruise(self, enable, reason):
     self._activate_cruise = enable
@@ -769,7 +768,7 @@ class VCruiseCarrot:
 
     min_off_frames = int(1.2 / 0.01)
     max_off_frames = int(8.0 / 0.01)
-    ready_to_resume = speed_delta <= resume_margin or self._ray_ipedal_timer >= max_off_frames
+    ready_to_resume = speed_delta <= resume_margin or (self._ray_ipedal_timer >= max_off_frames and speed_delta < trigger_delta and not lead_decel)
     if not ready_to_resume and self._activate_cruise > 0:
       self._activate_cruise = 0
 
@@ -781,7 +780,7 @@ class VCruiseCarrot:
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
       self._ray_ipedal_cancel_repeat = 0
-      self._ray_ipedal_set_cruise(1, f"Ray i-Pedal resume {v_ego_kph:.0f}<={target_kph:.0f}")
+      self._ray_ipedal_set_cruise(2, f"Ray i-Pedal resume {v_ego_kph:.0f}<={target_kph:.0f}")
     else:
       self._add_log(f"Ray i-Pedal active {v_ego_kph:.0f}>{target_kph:.0f}")
 

@@ -275,7 +275,8 @@ class CarSpecificEvents:
 
     if not self.CP.pcmCruise:
       if CS.activateCruise > 0 and CS_prev.activateCruise <= 0:
-        if not events.contains(ET.NO_ENTRY):
+        is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
+        if not events.contains(ET.NO_ENTRY) and (not is_ray_ev or CS.activateCruise == 2):
           events.add(EventName.buttonEnable)
       elif CS.activateCruise < 0 and CS_prev.activateCruise >= 0:
         events.add(EventName.buttonCancel)
