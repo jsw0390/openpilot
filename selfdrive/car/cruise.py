@@ -17,6 +17,9 @@ V_CRUISE_UNSET = 255
 V_CRUISE_INITIAL = 40
 V_CRUISE_INITIAL_EXPERIMENTAL_MODE = 105
 IMPERIAL_INCREMENT = round(CV.MPH_TO_KPH, 1)  # round here to avoid rounding errors incrementing set speed
+RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
+RAY_VTURN_SHARP_KPH = 35.0
+RAY_CURVE_DROP_KPH = 12.0
 
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
@@ -225,12 +228,14 @@ class VCruiseCarrot:
     self.AutoSpeedUptoRoadSpeedLimit = 0.0
     self.rayVisionCruiseControl = 0
     self.rayVisionCruiseLeadProb = 0.85
+    self.rayVisionCruiseTFollowAdd = 0.35
     self.rayVisionIPedalAssist = 0
     self.rayVisionIPedalSpeedDelta = 7
     self.rayVisionIPedalResumeMargin = 2
     self._ray_ipedal_active = False
     self._ray_ipedal_timer = 0
     self._ray_ipedal_cancel_repeat = 0
+    self.vTurnSpeed = 0
     self.desiredSource = ""
 
     self.useLaneLineSpeed = self.params.get_int("UseLaneLineSpeed")
@@ -280,6 +285,7 @@ class VCruiseCarrot:
       self.cruiseOnDist = self.params.get_float("CruiseOnDist") * 0.01
       self.rayVisionCruiseControl = self.params.get_int("RayVisionCruiseControl")
       self.rayVisionCruiseLeadProb = np.clip(self.params.get_float("RayVisionCruiseLeadProb") / 100., 0.5, 0.95)
+      self.rayVisionCruiseTFollowAdd = np.clip(self.params.get_float("RayVisionCruiseTFollowAdd") / 100., 0.0, 1.0)
       self.rayVisionIPedalAssist = self.params.get_int("RayVisionIPedalAssist")
       self.rayVisionIPedalSpeedDelta = self.params.get_int("RayVisionIPedalSpeedDelta")
       self.rayVisionIPedalResumeMargin = self.params.get_int("RayVisionIPedalResumeMargin")
@@ -309,6 +315,7 @@ class VCruiseCarrot:
       carrot_man = sm['carrotMan']
       self.nRoadLimitSpeed = carrot_man.nRoadLimitSpeed
       self.desiredSpeed = carrot_man.desiredSpeed
+      self.vTurnSpeed = carrot_man.vTurnSpeed
       self.desiredSource = carrot_man.desiredSource
       self.carrot_cmd_index = carrot_man.carrotCmdIndex
       self.carrot_cmd = carrot_man.carrotCmd
@@ -419,7 +426,7 @@ class VCruiseCarrot:
       if b.pressed and self.button_cnt == 0 and bt in [
         ButtonType.accelCruise, ButtonType.decelCruise,
         ButtonType.gapAdjustCruise, ButtonType.cancel,
-        ButtonType.lfaButton
+        ButtonType.lfaButton, ButtonType.mainCruise
       ]:
         self.button_cnt = 1
         self.button_prev = bt
@@ -427,6 +434,8 @@ class VCruiseCarrot:
 
       elif not b.pressed and self.button_cnt > 0 and bt == self.button_prev:
         if bt == ButtonType.cancel:
+          button_type = bt
+        elif bt == ButtonType.mainCruise:
           button_type = bt
         elif not self.long_pressed:          
           if bt == ButtonType.accelCruise:
@@ -528,6 +537,9 @@ class VCruiseCarrot:
           v_cruise_kph = button_kph
         else:
           v_cruise_kph = self._v_cruise_desired(CS, v_cruise_kph)
+        if self.is_ray_ev and not CC.enabled:
+          self._activate_cruise = 2
+          self._cruise_ready = False
         self.carrot_cruise_active = False
 
       elif button_type == ButtonType.decelCruise:
@@ -554,6 +566,9 @@ class VCruiseCarrot:
           #self._cruise_control(-2, -1, "Cruise off (decelCruise)")
           self.carrot_cruise_active = True
           #self.events.append(EventName.audioPrompt)
+        if self.is_ray_ev and not CC.enabled:
+          self._activate_cruise = 2
+          self._cruise_ready = False
         self._v_cruise_kph_at_brake = 0
 
       elif button_type == ButtonType.gapAdjustCruise:
@@ -588,6 +603,16 @@ class VCruiseCarrot:
           self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
         self._cruise_cancel_state = True
         #self._v_cruise_kph_at_brake = 0
+      elif button_type == ButtonType.mainCruise:
+        if CC.enabled:
+          self._cruise_control(-1, -1, "Cruise off (mainCruise)")
+          self._cruise_ready = True
+        else:
+          self._lat_enabled = True
+          self._activate_cruise = 2 if self.is_ray_ev else 1
+          self._cruise_ready = False
+          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+          self._add_log("Cruise on (mainCruise)")
     else:
       if button_type == ButtonType.accelCruise:
         v_cruise_kph = button_kph
@@ -725,6 +750,28 @@ class VCruiseCarrot:
       self._cruise_ready = enable == -2
     self._add_log(reason)
 
+  def _ray_desired_speed_allowed(self, v_cruise_kph):
+    if not self._ray_ipedal_enabled():
+      return False
+
+    source = str(self.desiredSource or "")
+    if source not in RAY_CURVE_SOURCES:
+      return source != "road"
+
+    desired_kph = float(self.desiredSpeed)
+    if not (0.0 < desired_kph < 200.0):
+      return False
+
+    drop_kph = float(v_cruise_kph) - desired_kph
+    if drop_kph < 7.0:
+      return False
+
+    raw_vturn_kph = abs(float(self.vTurnSpeed or 0.0))
+    if source == "vturn" and raw_vturn_kph > 0.0:
+      return raw_vturn_kph <= RAY_VTURN_SHARP_KPH
+
+    return drop_kph >= RAY_CURVE_DROP_KPH
+
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
     if not self._ray_ipedal_enabled():
       self._ray_ipedal_active = False
@@ -734,8 +781,12 @@ class VCruiseCarrot:
 
     v_ego_kph = self.v_ego_kph_set
     target_kph = float(v_cruise_kph)
-    if 0 < self.desiredSpeed < 200:
+    desired_allowed = self._ray_desired_speed_allowed(v_cruise_kph)
+    if desired_allowed and 0 < self.desiredSpeed < 200:
       target_kph = min(target_kph, float(self.desiredSpeed))
+    lead_target_kph = self._ray_lead_target_kph(CS, target_kph)
+    if lead_target_kph is not None:
+      target_kph = min(target_kph, lead_target_kph)
 
     if CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or v_ego_kph < 15:
       self._ray_ipedal_active = False
@@ -744,24 +795,21 @@ class VCruiseCarrot:
       return v_cruise_kph
 
     speed_delta = v_ego_kph - target_kph
-    curve_source = self.desiredSource in ["vturn", "model", "route", "mapd", "mapd_curve"]
-    lead_decel = (
-      self.rayVisionIPedalAssist >= 2 and
-      self.d_rel > 0 and not self.lead_radar and self.lead_prob >= self.rayVisionCruiseLeadProb and
-      self.v_rel < -1.0 and self.d_rel < max(12.0, CS.vEgo * 1.1)
-    )
+    curve_source = desired_allowed and self.desiredSource in RAY_CURVE_SOURCES
+    lead_decel = self.rayVisionIPedalAssist >= 2 and lead_target_kph is not None
     trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
     resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
     curve_trigger_delta = max(3.0, trigger_delta - 3.0)
     need_decel = speed_delta >= trigger_delta or (curve_source and speed_delta >= curve_trigger_delta) or lead_decel
+    ray_cruise_active = CS.cruiseState.enabled or (self.is_ray_ev and CC.enabled)
 
     if not self._ray_ipedal_active:
-      if need_decel and CS.cruiseState.enabled:
+      if need_decel and ray_cruise_active:
         self._ray_ipedal_active = True
         self._ray_ipedal_timer = 0
         self._ray_ipedal_cancel_repeat = 0
         self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal decel {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
-      return min(v_cruise_kph, target_kph)
+      return v_cruise_kph
 
     self._ray_ipedal_timer += 1
     self._ray_ipedal_cancel_repeat = max(0, self._ray_ipedal_cancel_repeat - 1)
@@ -784,7 +832,28 @@ class VCruiseCarrot:
     else:
       self._add_log(f"Ray i-Pedal active {v_ego_kph:.0f}>{target_kph:.0f}")
 
-    return min(v_cruise_kph, target_kph)
+    return v_cruise_kph
+
+  def _ray_lead_target_kph(self, CS, cruise_kph):
+    if self.rayVisionCruiseControl <= 0 or self.rayVisionIPedalAssist < 2:
+      return None
+    if self.d_rel <= 0.0 or CS.vEgo < 1.0:
+      return None
+    if not self.lead_radar and self.lead_prob < self.rayVisionCruiseLeadProb:
+      return None
+
+    desired_dist = max(10.0, CS.vEgo * (1.2 + self.rayVisionCruiseTFollowAdd))
+    closing = self.v_rel < -0.5 and self.d_rel < max(45.0, CS.vEgo * 3.0)
+    too_close = self.d_rel < desired_dist
+    if not closing and not too_close:
+      return None
+
+    target_kph = min(float(cruise_kph), max(0.0, self.v_lead_kph) + (0.0 if too_close else 3.0))
+    if too_close:
+      shortfall = max(0.0, desired_dist - self.d_rel)
+      target_kph = min(target_kph, self.v_ego_kph_set - min(15.0, 4.0 + shortfall * 0.8))
+
+    return max(30.0, target_kph)
 
   def _update_cruise_state(self, CS, CC, v_cruise_kph):
     if not CC.enabled:

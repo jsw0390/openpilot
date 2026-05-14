@@ -37,6 +37,10 @@ LaneChangeDirection = log.LaneChangeDirection
 
 ACTUATOR_FIELDS = tuple(car.CarControl.Actuators.schema.fields.keys())
 
+RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
+RAY_VTURN_SHARP_KPH = 35.0
+RAY_CURVE_DROP_KPH = 12.0
+
 
 class Controls:
   def __init__(self) -> None:
@@ -51,7 +55,7 @@ class Controls:
 
     self.sm = messaging.SubMaster(['liveDelay', 'liveParameters', 'liveTorqueParameters', 'modelV2', 'selfdriveState',
                                    'liveCalibration', 'livePose', 'longitudinalPlan', 'carState', 'carOutput',
-                                   'carrotMan', 'lateralPlan', 'radarState',
+                                   'carrotMan', 'mapdOut', 'lateralPlan', 'radarState',
                                    'driverMonitoringState', 'onroadEvents', 'driverAssistance'], poll='selfdriveState')
     self.pm = messaging.PubMaster(['carControl', 'controlsState'])
 
@@ -77,6 +81,51 @@ class Controls:
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI)
     self.carrot_controls = CarrotControls(self.CP)
+
+  def _ray_curve_desired_allowed(self, carrot_man, base_cruise_kph: float) -> bool:
+    source = str(getattr(carrot_man, "desiredSource", "") or "")
+    if source not in RAY_CURVE_SOURCES:
+      return source != "road"
+
+    desired_kph = float(getattr(carrot_man, "desiredSpeed", 0.0) or 0.0)
+    if not (0.0 < desired_kph < 200.0):
+      return False
+
+    drop_kph = base_cruise_kph - desired_kph
+    if drop_kph < 7.0:
+      return False
+
+    raw_vturn_kph = abs(float(getattr(carrot_man, "vTurnSpeed", 0.0) or 0.0))
+    if source == "vturn" and raw_vturn_kph > 0.0:
+      return raw_vturn_kph <= RAY_VTURN_SHARP_KPH
+
+    return drop_kph >= RAY_CURVE_DROP_KPH
+
+  def _ray_lead_target_speed(self, CS, base_cruise_kph: float) -> float | None:
+    lead = self.sm['radarState'].leadOne
+    if not lead.status or CS.vEgo < 1.0:
+      return None
+
+    lead_prob = float(getattr(lead, "modelProb", 0.0) or 0.0)
+    lead_radar = bool(getattr(lead, "radar", False))
+    min_prob = np.clip(self.params.get_float("RayVisionCruiseLeadProb") / 100.0, 0.5, 0.95)
+    if not lead_radar and lead_prob < min_prob:
+      return None
+
+    t_follow_add = np.clip(self.params.get_float("RayVisionCruiseTFollowAdd") / 100.0, 0.0, 1.0)
+    desired_dist = max(10.0, CS.vEgo * (1.2 + t_follow_add))
+    closing = lead.vRel < -0.5 and lead.dRel < max(45.0, CS.vEgo * 3.0)
+    too_close = lead.dRel < desired_dist
+    if not closing and not too_close:
+      return None
+
+    lead_kph = max(0.0, lead.vLeadK * CV.MS_TO_KPH)
+    target_kph = min(base_cruise_kph, lead_kph + (0.0 if too_close else 3.0))
+    if too_close:
+      shortfall = max(0.0, desired_dist - lead.dRel)
+      target_kph = min(target_kph, CS.vEgo * CV.MS_TO_KPH - min(15.0, 4.0 + shortfall * 0.8))
+
+    return max(30.0, target_kph)
 
   def update(self):
     self.sm.update(15)
@@ -229,13 +278,25 @@ class Controls:
     is_ray_ev = "KIA_RAY_EV" in str(self.CP.carFingerprint)
     if is_ray_ev:
       ray_speed_candidates = []
-      if setSpeed > 0.1:
-        ray_speed_candidates.append(setSpeed)
-      carrot_desired_kph = float(self.sm['carrotMan'].desiredSpeed)
-      if 0 < carrot_desired_kph < 200:
+      base_cruise_kph = float(CS.vCruiseCluster)
+      if base_cruise_kph <= 0.0 or base_cruise_kph > 200.0:
+        base_cruise_kph = max(float(CS.vEgoCluster * CV.MS_TO_KPH), float(setSpeed * CV.MS_TO_KPH))
+      plan_kph = float(setSpeed * CV.MS_TO_KPH) if setSpeed > 0.1 else 0.0
+      restore_kph = base_cruise_kph
+      if plan_kph > base_cruise_kph + 0.5:
+        restore_kph = min(160.0, plan_kph)
+      if restore_kph > 0.0:
+        ray_speed_candidates.append(restore_kph * CV.KPH_TO_MS)
+      carrot_man = self.sm['carrotMan']
+      carrot_desired_kph = float(carrot_man.desiredSpeed)
+      if 0 < carrot_desired_kph < 200 and self._ray_curve_desired_allowed(carrot_man, base_cruise_kph):
         ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
+      lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
+      if lead_target_kph is not None:
+        ray_speed_candidates.append(lead_target_kph * CV.KPH_TO_MS)
       road_limit_kph = float(self.sm['carrotMan'].nRoadLimitSpeed)
-      if road_limit_kph > 0:
+      mapd_loaded = self.sm.alive['mapdOut'] and self.sm.valid['mapdOut'] and self.sm['mapdOut'].tileLoaded
+      if self.params.get_int("MapdEnabled") > 0 and mapd_loaded and road_limit_kph > 0:
         ray_speed_candidates.append((road_limit_kph + self.params.get_int("RayVisionCruiseRoadOffset")) * CV.KPH_TO_MS)
       hudControl.setSpeed = float(max(30 / 3.6, min(ray_speed_candidates) if ray_speed_candidates else 30 / 3.6))
     elif self.CP.pcmCruise:
@@ -262,6 +323,8 @@ class Controls:
     hudControl.leadRelSpeed = leadOne.vRel if leadOne.status else 0
     hudControl.leadRadar = 1 if leadOne.radar else 0
     hudControl.leadDPath = leadOne.dPath
+    if is_ray_ev:
+      hudControl.leadVisible = bool(hudControl.leadVisible or leadOne.status)
 
     meta = self.sm['modelV2'].meta
     if False: # command

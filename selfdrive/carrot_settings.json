@@ -1173,17 +1173,17 @@
       "group": "시작",
       "name": "MapdEnabled",
       "title": "OSM 지도(mapd) 사용",
-      "descr": "다운로드된 OSM 지도를 사용해 제한속도와 지도 커브 속도를 반영합니다. 지도 다운로드는 SSH에서 ./selfdrive/mapd i 로 실행합니다.",
+      "descr": "다운로드된 OSM 지도를 사용해 제한속도와 지도 커브 속도를 반영합니다. 지도 다운로드는 당근 웹의 OSM 지도 도구에서 실행합니다.",
       "egroup": "START",
       "etitle": "Use OSM mapd",
-      "edescr": "Use downloaded OSM maps for speed limits and map curve speed. Download maps with ./selfdrive/mapd i over SSH.",
+      "edescr": "Use downloaded OSM maps for speed limits and map curve speed. Download maps from the OSM Maps tool in Carrot web.",
       "min": 0,
       "max": 1,
       "default": 0,
       "unit": 1,
       "cgroup": "启动设置",
       "ctitle": "使用 OSM mapd",
-      "cdescr": "使用已下载的 OSM 地图提供限速和地图弯道速度。通过 SSH 运行 ./selfdrive/mapd i 下载地图。"
+      "cdescr": "使用已下载的 OSM 地图提供限速和地图弯道速度。请在 Carrot 网页的 OSM 地图工具中下载地图。"
     },
     {
       "group": "시작",

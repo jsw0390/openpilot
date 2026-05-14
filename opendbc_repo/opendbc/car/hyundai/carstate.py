@@ -313,9 +313,13 @@ class CarState(CarStateBase):
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > self.params.STEER_THRESHOLD, 5)
     ret.steerFaultTemporary = cp.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0 or cp.vl["MDPS12"]["CF_Mdps_ToiFlt"] != 0
 
+    ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
+
     # cruise state
     if self.CP.openpilotLongitudinalControl:
       # These are not used for engage/disengage since openpilot keeps track of state using the buttons
+      if ray_ev_op_long:
+        self.main_enabled = True
       ret.cruiseState.available = self.main_enabled and self.controls_ready_count >= READY_COUNT_OK #cp.vl["TCS13"]["ACCEnable"] == 0
       ret.cruiseState.enabled = cp.vl["TCS13"]["ACC_REQ"] == 1
       ret.cruiseState.standstill = False
@@ -331,8 +335,9 @@ class CarState(CarStateBase):
 
     # TODO: Find brake pressure
     ret.brake = 0
-    if not self.CP.flags & HyundaiFlags.CC_ONLY_CAR:
-      ret.brakePressed = cp.vl["TCS13"]["DriverOverride"] == 2  # 2 includes regen braking by user on HEV/EV
+    if not self.CP.flags & HyundaiFlags.CC_ONLY_CAR or self.CP.carFingerprint == CAR.KIA_RAY_EV:
+      driver_override = cp.vl["TCS13"]["DriverOverride"]
+      ret.brakePressed = driver_override in (2, 3)  # 2 includes regen braking by user on HEV/EV
       ret.brakeHoldActive = cp.vl["TCS15"]["AVH_LAMP"] == 2  # 0 OFF, 1 ERROR, 2 ACTIVE, 3 READY
       ret.parkingBrake = cp.vl["TCS13"]["PBRAKE_ACT"] == 1
       ret.espDisabled = cp.vl["TCS11"]["TCS_PAS"] == 1
@@ -347,7 +352,7 @@ class CarState(CarStateBase):
         ret.gas = cp.vl["E_EMS11"]["CR_Vcu_AccPedDep_Pos"] / 254.
       else:
         ret.gas = cp.vl["E_EMS11"]["Accel_Pedal_Pos"] / 254.
-      ret.gasPressed = ret.gas > 0
+      ret.gasPressed = cp.vl["TCS13"]["DriverOverride"] in (1, 3) if ray_ev_op_long else ret.gas > 0
     else:
       ret.gas = cp.vl["EMS12"]["PV_AV_CAN"] / 100.
       ret.gasPressed = bool(cp.vl["EMS16"]["CF_Ems_AclAct"])
@@ -461,7 +466,7 @@ class CarState(CarStateBase):
 
     self.update_speed_limit(ret, speed_limit_cam)
 
-    if prev_main_buttons == 0 and self.main_buttons[-1] != 0:
+    if prev_main_buttons == 0 and self.main_buttons[-1] != 0 and not ray_ev_op_long:
       self.main_enabled = not self.main_enabled
 
     return ret
@@ -558,12 +563,16 @@ class CarState(CarStateBase):
         ret.leftBlindspot = (bsm_info["FL_INDICATOR"] + bsm_info["INDICATOR_LEFT_TWO"] + bsm_info["INDICATOR_LEFT_FOUR"]) > 0
         ret.rightBlindspot = (bsm_info["FR_INDICATOR"] + bsm_info["INDICATOR_RIGHT_TWO"] + bsm_info["INDICATOR_RIGHT_FOUR"]) > 0
 
+    ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
+
     # cruise state
     if self.cruise_buttons_alt2 is not None:
       cruise_button = self.cruise_buttons_alt2["CRUISE_BUTTONS"]
     else:
       cruise_button = cp.vl[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"]
     if cruise_button in [Buttons.RES_ACCEL, Buttons.SET_DECEL] and self.CP.openpilotLongitudinalControl:
+      self.main_enabled = True
+    if ray_ev_op_long:
       self.main_enabled = True
     # CAN FD cars enable on main button press, set available if no TCS faults preventing engagement
     ret.cruiseState.available = self.main_enabled and self.controls_ready_count >= READY_COUNT_OK #cp.vl["TCS"]["ACCEnable"] == 0
@@ -700,7 +709,7 @@ class CarState(CarStateBase):
       self.main_buttons.extend([1 if int(self.cruise_buttons_alt2.get("CRUISE_BUTTONS", 0)) == 8 else 0])
     else:
       self.main_buttons.extend(cp.vl_all[self.cruise_btns_msg_canfd]["ADAPTIVE_CRUISE_MAIN_BTN"])
-    if self.main_buttons[-1] != prev_main_buttons and not self.main_buttons[-1]: # and self.CP.openpilotLongitudinalControl: #carrot
+    if self.main_buttons[-1] != prev_main_buttons and not self.main_buttons[-1] and not ray_ev_op_long: # and self.CP.openpilotLongitudinalControl: #carrot
       self.main_enabled = not self.main_enabled
       print("main_enabled = {}".format(self.main_enabled))
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]

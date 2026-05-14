@@ -434,22 +434,16 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
         jobs.finish(job, ok=True, result={"ok": True, "skipped": True, "out": message, "status": status})
         return
 
-      if HAS_PARAMS and not Params().get_bool("MapdEnabled"):
-        error = "mapd is disabled. Enable it only after installing a compatible mapd binary."
-        jobs.finish(
-          job,
-          ok=False,
-          result={"ok": False, "error": error, "error_code": "MAPD_DISABLED"},
-          error=error,
-          error_code="MAPD_DISABLED",
-        )
-        return
-
       if HAS_PARAMS:
         try:
+          params = Params()
+          if not params.get_bool("MapdEnabled"):
+            params.put_bool("MapdEnabled", True)
+            jobs.append(job, "MapdEnabled enabled for map download\n")
+          params.put_bool("MapdRunOnroad", True)
           set_mapd_download_active(True)
         except Exception as e:
-          jobs.append(job, f"MapdDownloadActive set failed: {e}\n")
+          jobs.append(job, f"mapd params set failed: {e}\n")
 
       from cereal import messaging
       pm = messaging.PubMaster(["mapdIn"])
@@ -513,6 +507,20 @@ async def run_tool_job(job: Dict[str, Any]) -> None:
               result={"ok": False, "error": "map download cancelled", "error_code": "MAPD_DOWNLOAD_CANCELLED", "status": status},
               error="map download cancelled",
               error_code="MAPD_DOWNLOAD_CANCELLED",
+            )
+            return
+
+          downloaded = int(download.get("downloaded_files") or 0)
+          total = int(download.get("total_files") or 0)
+          if total > 0 and downloaded < total:
+            set_mapd_download_active(False)
+            error = f"map download incomplete: {downloaded}/{total}"
+            jobs.finish(
+              job,
+              ok=False,
+              result={"ok": False, "error": error, "error_code": "MAPD_DOWNLOAD_INCOMPLETE", "status": status},
+              error=error,
+              error_code="MAPD_DOWNLOAD_INCOMPLETE",
             )
             return
 
