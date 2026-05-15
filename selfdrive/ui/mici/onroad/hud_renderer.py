@@ -49,7 +49,7 @@ class SetSpeedOverride:
     except Exception:
       cruise_target = None
 
-    if cruise_target is not None and 0 < cruise_target < SET_SPEED_NA and abs(cruise_target - set_speed_kph) > 0.5:
+    if cruise_target is not None and 0 < cruise_target < SET_SPEED_NA:
       return SetSpeedOverrideState(
         active=True,
         speed_kph=cruise_target,
