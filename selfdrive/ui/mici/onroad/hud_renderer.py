@@ -40,6 +40,24 @@ class SetSpeedOverrideState:
 class SetSpeedOverride:
 
   def compute(self, sm, set_speed_kph: float) -> SetSpeedOverrideState:
+    # 0) controller target used for cruise button/control output
+    cruise_target = None
+    try:
+      hud_control = sm['carControl'].hudControl
+      if hud_control.speedVisible:
+        cruise_target = float(hud_control.setSpeed) * CV.MS_TO_KPH
+    except Exception:
+      cruise_target = None
+
+    if cruise_target is not None and 0 < cruise_target < SET_SPEED_NA and abs(cruise_target - set_speed_kph) > 0.5:
+      return SetSpeedOverrideState(
+        active=True,
+        speed_kph=cruise_target,
+        label="cruise",
+        speed_color_mode=1 if cruise_target > set_speed_kph else 2,
+        force_persist=True,
+      )
+
     # 1) eco (highest)
     cruise_target = None
     try:
