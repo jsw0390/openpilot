@@ -292,6 +292,8 @@ class HudRenderer(Widget):
 
     self._torque_bar.render(rect)
 
+    self._draw_set_speed(rect)
+
     if self.is_cruise_set:
       self._draw_set_speed_sunny(rect)
 

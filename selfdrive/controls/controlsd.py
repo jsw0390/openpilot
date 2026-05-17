@@ -246,37 +246,41 @@ class Controls:
     lp = self.sm['longitudinalPlan']
     is_ray_ev = "KIA_RAY_EV" in str(self.CP.carFingerprint)
     if is_ray_ev:
-      ray_speed_candidates = []
       base_cruise_kph = float(CS.vCruiseCluster)
       if base_cruise_kph <= 0.0 or base_cruise_kph > 200.0:
         base_cruise_kph = max(float(CS.vEgoCluster * CV.MS_TO_KPH), float(setSpeed * CV.MS_TO_KPH))
-      plan_kph = float(setSpeed * CV.MS_TO_KPH) if setSpeed > 0.1 else 0.0
-      restore_kph = base_cruise_kph
-      if plan_kph > base_cruise_kph + 0.5:
-        restore_kph = min(160.0, plan_kph)
-      if restore_kph > 0.0:
-        ray_speed_candidates.append(restore_kph * CV.KPH_TO_MS)
-      carrot_man = self.sm['carrotMan']
-      carrot_desired_kph = float(carrot_man.desiredSpeed)
-      if 0 < carrot_desired_kph < 200 and ray_desired_speed_allowed(
-        carrot_man.desiredSource, carrot_desired_kph, base_cruise_kph, carrot_man.vTurnSpeed,
-        enabled=True, disabled_result=False,
-      ):
-        ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
-      lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
-      if lead_target_kph is not None:
-        ray_speed_candidates.append(lead_target_kph * CV.KPH_TO_MS)
-      road_limit_kph = float(self.sm['carrotMan'].nRoadLimitSpeed)
-      mapd_loaded = self.sm.alive['mapdOut'] and self.sm.valid['mapdOut'] and self.sm['mapdOut'].tileLoaded
-      if self.params.get_int("MapdEnabled") > 0 and mapd_loaded and road_limit_kph > 0:
-        ray_speed_candidates.append((road_limit_kph + self.params.get_int("RayVisionCruiseRoadOffset")) * CV.KPH_TO_MS)
+      ray_vision_cruise_enabled = self.params.get_int("RayVisionCruiseControl") > 0
+      ray_speed_candidates = []
+      if ray_vision_cruise_enabled:
+        plan_kph = float(setSpeed * CV.MS_TO_KPH) if setSpeed > 0.1 else 0.0
+        restore_kph = base_cruise_kph
+        if plan_kph > base_cruise_kph + 0.5:
+          restore_kph = min(160.0, plan_kph)
+        if restore_kph > 0.0:
+          ray_speed_candidates.append(restore_kph * CV.KPH_TO_MS)
+        carrot_man = self.sm['carrotMan']
+        carrot_desired_kph = float(carrot_man.desiredSpeed)
+        if 0 < carrot_desired_kph < 200 and ray_desired_speed_allowed(
+          carrot_man.desiredSource, carrot_desired_kph, base_cruise_kph, carrot_man.vTurnSpeed,
+          enabled=True, disabled_result=False,
+        ):
+          ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
+        lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
+        if lead_target_kph is not None:
+          ray_speed_candidates.append(lead_target_kph * CV.KPH_TO_MS)
+        road_limit_kph = float(self.sm['carrotMan'].nRoadLimitSpeed)
+        mapd_loaded = self.sm.alive['mapdOut'] and self.sm.valid['mapdOut'] and self.sm['mapdOut'].tileLoaded
+        if self.params.get_int("MapdEnabled") > 0 and mapd_loaded and road_limit_kph > 0:
+          ray_speed_candidates.append((road_limit_kph + self.params.get_int("RayVisionCruiseRoadOffset")) * CV.KPH_TO_MS)
+      else:
+        ray_speed_candidates.append(base_cruise_kph * CV.KPH_TO_MS)
       hudControl.setSpeed = float(max(30 / 3.6, min(ray_speed_candidates) if ray_speed_candidates else 30 / 3.6))
     elif self.CP.pcmCruise:
       speed_from_pcm = self.params.get_int("SpeedFromPCM")
       if speed_from_pcm == 1: #toyota
         hudControl.setSpeed = float(CS.vCruiseCluster * CV.KPH_TO_MS)
       elif speed_from_pcm == 2:
-        hudControl.setSpeed = float(max(30/3.6, desired_kph * CV.KPH_TO_MS))
+        hudControl.setSpeed = float(max(30/3.6, CS.vCruiseCluster * CV.KPH_TO_MS))
       elif speed_from_pcm == 3: # honda
         hudControl.setSpeed = setSpeed if lp.xState == 3 else float(desired_kph * CV.KPH_TO_MS)
       else:
