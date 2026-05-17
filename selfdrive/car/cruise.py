@@ -552,6 +552,8 @@ class VCruiseCarrot:
           pass
         elif not CC.enabled:
           v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+        elif self.is_ray_ev and self.v_ego_kph_set > v_cruise_kph + 2:
+          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
         elif self.v_ego_kph_set > v_cruise_kph + 2 and self._cruise_button_mode in [2, 3]:
           v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
         elif self._cruise_button_mode in [0, 1]:
@@ -920,7 +922,7 @@ class VCruiseCarrot:
     if self._gas_pressed_count > self._gas_tok_timer:
       if CS.aEgo < -0.5:
         self._cruise_control(-1, 5.0, "Cruise off (gas pressed while braking)")
-      if self.v_ego_kph_set > v_cruise_kph and self.autoGasSyncSpeed:
+      if self.v_ego_kph_set > v_cruise_kph and self.autoGasSyncSpeed and not self.is_ray_ev:
         v_cruise_kph = self.v_ego_kph_set
 
     if self._gas_pressed_count == 1 or CS.vEgo < 0.1:

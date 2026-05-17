@@ -730,10 +730,14 @@ class CarController(CarControllerBase):
         send_button = Buttons.SET_DECEL if is_ray_ev else resume_button
         activate_cruise = True
 
-    if CS.out.brakePressed or CS.out.gasPressed:
+    if CS.out.brakePressed:
       self.activateCruise = 0
       self.ray_ev_activate_retry = 0
       self.ray_ev_cruise_enabled_last = False
+      send_button = 0
+    elif CS.out.gasPressed:
+      self.activateCruise = 0
+      self.ray_ev_activate_retry = 0
       send_button = 0
 
     if send_button == 0:

@@ -252,10 +252,7 @@ class Controls:
       ray_vision_cruise_enabled = self.params.get_int("RayVisionCruiseControl") > 0
       ray_speed_candidates = []
       if ray_vision_cruise_enabled:
-        plan_kph = float(setSpeed * CV.MS_TO_KPH) if setSpeed > 0.1 else 0.0
         restore_kph = base_cruise_kph
-        if plan_kph > base_cruise_kph + 0.5:
-          restore_kph = min(160.0, plan_kph)
         if restore_kph > 0.0:
           ray_speed_candidates.append(restore_kph * CV.KPH_TO_MS)
         carrot_man = self.sm['carrotMan']

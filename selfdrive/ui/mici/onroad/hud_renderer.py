@@ -668,6 +668,11 @@ class HudRenderer(Widget):
     if self._debug_speed_panel:
       return "80", rl.Color(128, 216, 166, 255)
     if self._is_ray_ev():
+      if self.is_cruise_set:
+        set_speed = self.set_speed
+        if not ui_state.is_metric:
+          set_speed *= KM_TO_MILE
+        return str(round(set_speed)), rl.Color(128, 216, 166, 255)
       ray_speed = self._get_ray_ev_target_speed()
       if ray_speed is None:
         return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
