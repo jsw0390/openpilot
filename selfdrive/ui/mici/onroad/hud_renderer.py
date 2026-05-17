@@ -792,20 +792,47 @@ class HudRenderer(Widget):
       return
 
     if lamp == "left":
-      txt = "<-"
-      color = rl.Color(0, 255, 100, 240)
+      direction = -1
     elif lamp == "right":
-      txt = "->"
-      color = rl.Color(0, 255, 100, 240)
+      direction = 1
     elif lamp == "uturn":
       txt = "U"
       color = rl.Color(255, 220, 80, 240)
+      font_size = int(size * 2.0)
+      draw_text_ui_style(txt, cx, cy, font_size, color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="center", y_offset=0.0)
+      return
     else:
       return
 
-    font_size = int(size * 2.0)
-    text_size = measure_text_cached(self._font_display, txt, font_size)
-    draw_text_ui_style(txt, cx, cy, font_size, color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="center", y_offset=0.0)
+    if int(time.monotonic() * 2.5) % 2:
+      return
+
+    color = rl.Color(0, 255, 100, 245)
+    thickness = max(5.0, size * 0.22)
+    shaft = size * 1.15
+    head = size * 0.65
+    tip_x = cx + direction * size * 0.8
+    base_x = tip_x - direction * head
+    tail_x = cx - direction * shaft
+
+    rl.draw_line_ex(
+      rl.Vector2(tail_x, cy),
+      rl.Vector2(tip_x, cy),
+      thickness,
+      color,
+    )
+    rl.draw_line_ex(
+      rl.Vector2(tip_x, cy),
+      rl.Vector2(base_x, cy - head),
+      thickness,
+      color,
+    )
+    rl.draw_line_ex(
+      rl.Vector2(tip_x, cy),
+      rl.Vector2(base_x, cy + head),
+      thickness,
+      color,
+    )
 
   def _draw_traffic_light_info(self, pos_x: int, pos_y: int) -> bool:
     info = self._get_traffic_light_info()
@@ -825,6 +852,9 @@ class HudRenderer(Widget):
     lamp_cy = int(pos_y)
 
     self._draw_traffic_light_lamp(lamp, lamp_cx, lamp_cy, lamp_size)
+
+    if lamp in ("left", "right"):
+      return True
 
     text_x = lamp_cx + lamp_size + gap
     text_y = int(pos_y - remain_size.y / 2)

@@ -1,4 +1,4 @@
-RAY_CURVE_SOURCES = {"vturn", "model", "route", "mapd", "mapd_curve"}
+RAY_CURVE_SOURCES = {"atc", "atc2", "vturn", "model", "route", "mapd", "mapd_curve"}
 RAY_VTURN_SHARP_KPH = 35.0
 RAY_CURVE_DROP_KPH = 12.0
 RAY_LEAD_BASE_T_FOLLOW = 1.0
