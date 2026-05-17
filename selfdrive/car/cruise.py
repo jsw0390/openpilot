@@ -740,6 +740,9 @@ class VCruiseCarrot:
   def _ray_ipedal_enabled(self):
     return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
 
+  def _ray_curve_cruise_pause_enabled(self):
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0
+
   def _ray_ipedal_set_cruise(self, enable, reason):
     self._activate_cruise = enable
     if enable > 0:
@@ -749,7 +752,9 @@ class VCruiseCarrot:
     self._add_log(reason)
 
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    if not self._ray_ipedal_enabled():
+    ray_ipedal_enabled = self._ray_ipedal_enabled()
+    ray_curve_pause_enabled = self._ray_curve_cruise_pause_enabled()
+    if not ray_ipedal_enabled and not ray_curve_pause_enabled:
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
       self._ray_ipedal_cancel_repeat = 0
@@ -759,7 +764,7 @@ class VCruiseCarrot:
     target_kph = float(v_cruise_kph)
     desired_allowed = ray_desired_speed_allowed(
       self.desiredSource, self.desiredSpeed, v_cruise_kph, self.vTurnSpeed,
-      enabled=self._ray_ipedal_enabled(), disabled_result=False,
+      enabled=ray_ipedal_enabled or ray_curve_pause_enabled, disabled_result=False,
     )
     if desired_allowed and 0 < self.desiredSpeed < 200:
       target_kph = min(target_kph, float(self.desiredSpeed))
@@ -779,7 +784,9 @@ class VCruiseCarrot:
     trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
     resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
     curve_trigger_delta = max(3.0, trigger_delta - 3.0)
-    need_decel = speed_delta >= trigger_delta or (curve_source and speed_delta >= curve_trigger_delta) or lead_decel
+    need_curve_pause = ray_curve_pause_enabled and curve_source and speed_delta >= curve_trigger_delta
+    need_speed_decel = ray_ipedal_enabled and speed_delta >= trigger_delta
+    need_decel = need_speed_decel or need_curve_pause or lead_decel
     ray_cruise_active = CS.cruiseState.enabled or (self.is_ray_ev and CC.enabled)
 
     if not self._ray_ipedal_active:
@@ -787,7 +794,8 @@ class VCruiseCarrot:
         self._ray_ipedal_active = True
         self._ray_ipedal_timer = 0
         self._ray_ipedal_cancel_repeat = 0
-        self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal decel {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
+        pause_reason = "curve pause" if need_curve_pause else "i-Pedal decel"
+        self._ray_ipedal_set_cruise(-2, f"Ray {pause_reason} {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
       return v_cruise_kph
 
     self._ray_ipedal_timer += 1

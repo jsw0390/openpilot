@@ -367,7 +367,7 @@ class VisionTrack:
     return {
       "dRel": self.dRel,
       "yRel": self.yRel,
-      #"dPath": self.dPath,
+      "dPath": self.dPath,
       "vRel": self.vRel,
       "vLead": self.vLead,
       "vLeadK": self.vLeadK,    ## TODO: 아직 vLeadK는 엉망인듯...
@@ -490,6 +490,52 @@ class RadarD:
       "R": deque(maxlen=10),
     }
     self._corner_state = {"L": 0, "R": 0}  # -1,0,+1
+    self._ray_vision_lead_hold = [{'status': False}, {'status': False}]
+    self._ray_vision_lead_hold_frames = [0, 0]
+    self._ray_vision_lead_hold_max_frames = int(1.2 / DT_MDL)
+
+  def _ray_vision_lead_hold_update(self, index: int, lead_dict: dict[str, Any], lead_prob: float) -> dict[str, Any]:
+    if not self.is_ray_ev or index != 0:
+      return lead_dict
+
+    if lead_dict.get('status', False):
+      d_rel = float(lead_dict.get('dRel', 0.0))
+      if not lead_dict.get('radar', False) and 2.0 < d_rel < 120.0:
+        self._ray_vision_lead_hold[index] = copy.deepcopy(lead_dict)
+        self._ray_vision_lead_hold_frames[index] = self._ray_vision_lead_hold_max_frames
+      else:
+        self._ray_vision_lead_hold[index] = {'status': False}
+        self._ray_vision_lead_hold_frames[index] = 0
+      return lead_dict
+
+    if self._ray_vision_lead_hold_frames[index] <= 0:
+      return lead_dict
+
+    hold = copy.deepcopy(self._ray_vision_lead_hold[index])
+    if not hold.get('status', False):
+      self._ray_vision_lead_hold_frames[index] = 0
+      return lead_dict
+
+    d_rel = float(hold.get('dRel', 0.0)) + float(hold.get('vRel', 0.0)) * DT_MDL
+    if d_rel <= 2.0 or d_rel > 120.0:
+      self._ray_vision_lead_hold[index] = {'status': False}
+      self._ray_vision_lead_hold_frames[index] = 0
+      return lead_dict
+
+    hold['dRel'] = d_rel
+    hold['vLead'] = max(0.0, self.v_ego + float(hold.get('vRel', 0.0)))
+    hold['vLeadK'] = hold['vLead']
+    hold['aLead'] = 0.0
+    hold['aLeadK'] = 0.0
+    hold['aLeadTau'] = _LEAD_ACCEL_TAU
+    hold['jLead'] = 0.0
+    hold['modelProb'] = min(float(hold.get('modelProb', lead_prob)), 0.89)
+    hold['radar'] = False
+    hold['radarTrackId'] = -1
+
+    self._ray_vision_lead_hold[index] = copy.deepcopy(hold)
+    self._ray_vision_lead_hold_frames[index] -= 1
+    return hold
 
 
   def update(self, sm: messaging.SubMaster, rr: car.RadarData):
@@ -620,6 +666,8 @@ class RadarD:
         if (not lead_dict['status']) or (closest_track.dRel < lead_dict['dRel']):
           #lead_dict = closest_track.get_RadarState(lead_prob, self.vision_tracks[0].yRel, self.vision_tracks[0].vLat)
           lead_dict = closest_track.get_RadarState(lead_prob, self.vision_tracks[0].yRel)
+
+    lead_dict = self._ray_vision_lead_hold_update(index, lead_dict, lead_prob)
 
     return lead_dict, radar
 
