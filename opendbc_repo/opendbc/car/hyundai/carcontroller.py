@@ -140,6 +140,7 @@ class CarController(CarControllerBase):
     self.ray_ev_estimated_cruise_speed = 0
     self.ray_ev_activate_retry = 0
     self.ray_ev_prev_cruise_button = Buttons.NONE
+    self.ray_ev_speed_bias_active = False
 
     self.apply_angle_last = 0
     self.lkas_max_torque = 0
@@ -574,14 +575,57 @@ class CarController(CarControllerBase):
 
     return None
 
+  def _ray_ev_cruise_step_active(self, CS):
+    try:
+      return int(CS.out.gearStep) == 7
+    except Exception:
+      return False
+
+  def _ray_ev_speed_tracking_target(self, target, current, v_ego_kph, hud_control):
+    if target <= 0:
+      self.ray_ev_speed_bias_active = False
+      return target
+
+    speed_error = v_ego_kph - target
+
+    # Once actual speed reaches the comma target, stop using the temporary low
+    # target. The normal button logic below will then sync the vehicle cruise
+    # setpoint back to the comma target if our Ray EV estimate is still off.
+    if speed_error <= 2.0:
+      self.ray_ev_speed_bias_active = False
+      return target
+    if not self.ray_ev_speed_bias_active and speed_error <= 3.0:
+      return target
+
+    # If the stock cruise setpoint is still above the comma target, let the
+    # normal SET button matching bring it down first. When that setpoint reaches
+    # target but the car is still too fast, temporarily bias lower to encourage
+    # smooth deceleration, then restore to target at the settle point above.
+    if current > target + 1:
+      self.ray_ev_speed_bias_active = True
+      return target
+
+    lead_close = (
+      hud_control.leadVisible and hud_control.leadDistance > 0.0 and
+      (
+        hud_control.leadRelSpeed < -0.5 or
+        hud_control.leadDistance < max(18.0, v_ego_kph / 3.6 * 1.2)
+      )
+    )
+    bias_max = 8 if lead_close else 5
+    decel_bias = int(np.clip(round(speed_error * 0.5), 1, bias_max))
+    self.ray_ev_speed_bias_active = True
+    return max(30, target - decel_bias)
 
   def make_spam_button(self, CC, CS):
     hud_control = CC.hudControl
     set_speed_in_units = hud_control.setSpeed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH)
     target = int(set_speed_in_units+0.5)
+    button_target = target
     current = int(CS.out.cruiseState.speed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH) + 0.5)
     v_ego_kph = CS.out.vEgo * CV.MS_TO_KPH
     is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
+    ray_ev_cruise_step_active = is_ray_ev and CC.enabled and self._ray_ev_cruise_step_active(CS)
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
     physical_button_edge = physical_button != self.ray_ev_prev_cruise_button and physical_button != Buttons.NONE
     self.ray_ev_prev_cruise_button = physical_button
@@ -596,13 +640,17 @@ class CarController(CarControllerBase):
       elif physical_button == Buttons.SET_DECEL:
         self.ray_ev_estimated_cruise_speed = max(30, self.ray_ev_estimated_cruise_speed - 1)
       self.ray_ev_cruise_enabled_last = True
-    ray_ev_cruise_active = CS.out.cruiseState.enabled or (is_ray_ev and self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
+    ray_ev_cruise_active = (
+      CS.out.cruiseState.enabled or ray_ev_cruise_step_active or
+      (is_ray_ev and self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
+    )
     ray_ev_using_estimate = False
 
     if is_ray_ev:
       if not ray_ev_cruise_active:
         self.ray_ev_cruise_enabled_last = False
         self.ray_ev_estimated_cruise_speed = 0
+        self.ray_ev_speed_bias_active = False
       elif not self.ray_ev_cruise_enabled_last or self.ray_ev_estimated_cruise_speed <= 0:
         self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
 
@@ -614,6 +662,8 @@ class CarController(CarControllerBase):
 
       self.ray_ev_cruise_enabled_last = ray_ev_cruise_active
       self.activateCruise = 0
+      if ray_ev_cruise_active:
+        button_target = self._ray_ev_speed_tracking_target(target, current, v_ego_kph, hud_control)
 
     send_button = 0
     activate_cruise = False
@@ -627,7 +677,7 @@ class CarController(CarControllerBase):
         send_button = Buttons.SET_DECEL
         activate_cruise = True
         self.activateCruise = 1
-      elif is_ray_ev and self.ray_ev_activate_retry > 0 and ray_ev_activation_allowed and not CS.out.cruiseState.enabled:
+      elif is_ray_ev and self.ray_ev_activate_retry > 0 and ray_ev_activation_allowed and not ray_ev_cruise_active:
         send_button = Buttons.SET_DECEL
         activate_cruise = True
         self.activateCruise = 1
@@ -644,11 +694,11 @@ class CarController(CarControllerBase):
           self.activateCruise = 1
       elif CC.cruiseControl.resume and not is_ray_ev:
         send_button = resume_button
-      elif target < current and current>= 31 and self.speed_from_pcm != 1:
+      elif button_target < current and current>= 31 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         send_button = Buttons.SET_DECEL
-      elif target > current and current < 160 and self.speed_from_pcm != 1:
+      elif button_target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         lead_blocking = (

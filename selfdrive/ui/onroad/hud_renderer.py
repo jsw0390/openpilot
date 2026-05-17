@@ -530,6 +530,7 @@ class HudRenderer(Widget):
   def _draw_carrot_speed_panel(self, bx: int, by: int):
     cur_speed_int = 123 if self._debug_speed_panel else int(round(self.speed))
     cur_text = str(cur_speed_int)
+    set_speed_text, set_speed_color = self._get_cruise_speed_text_and_color()
 
     draw_text_ui_style(
       cur_text, bx, by + 50, 120, rl.WHITE,
@@ -538,6 +539,33 @@ class HudRenderer(Widget):
       shadow_offset=8.0,
       align="center_bottom",
     )
+
+    set_speed_x = bx + 200
+    draw_text_ui_style(
+      set_speed_text, set_speed_x, by + 50, 112, set_speed_color,
+      font=self._font_display,
+      border_width=3.0,
+      shadow_offset=8.0,
+      align="center_bottom",
+    )
+    draw_text_ui_style(
+      tr("MAX"), set_speed_x, by + 88, 36, set_speed_color,
+      font=self._font_display,
+      border_width=1.0,
+      shadow_offset=4.0,
+      align="center_bottom",
+    )
+
+  def _get_cruise_speed_text_and_color(self):
+    if self._debug_speed_panel:
+      return "80", COLORS.ENGAGED
+    if not self.is_cruise_set:
+      return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
+
+    set_speed = self.set_speed
+    if not ui_state.is_metric:
+      set_speed *= KM_TO_MILE
+    return str(round(set_speed)), COLORS.ENGAGED
 
   def _draw_carrot_lower_status(self, bx: int, by: int):
     mode_text, mode_color = self._get_driving_mode_text_and_color()

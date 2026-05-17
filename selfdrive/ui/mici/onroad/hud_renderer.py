@@ -642,7 +642,7 @@ class HudRenderer(Widget):
     return gap
 
   def _draw_set_speed(self, rect: rl.Rectangle) -> None:
-    """Draw only the current vehicle speed in the bottom-left HUD slot."""
+    """Draw current vehicle speed with the cruise set speed beside it."""
     panel_h = 115
     panel_x = int(rect.x + 10)
     panel_y = int(rect.y + rect.height - panel_h - 92)
@@ -657,10 +657,26 @@ class HudRenderer(Widget):
     cur_font = 80
     cur_size = measure_text_cached(self._font_display, cur_text, cur_font)
     cur_x = panel_x + 18
+    set_speed_x = panel_x + 172
 
     cur_y = int(panel_y + panel_h * 0.48 - cur_size.y * 0.5) - 2
 
     draw_text_ui_style(cur_text, cur_x, cur_y, cur_font, rl.WHITE, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
+
+    set_speed_text, set_speed_color = self._get_cruise_speed_text_and_color()
+    draw_text_ui_style(set_speed_text, set_speed_x, cur_y, cur_font, set_speed_color, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
+    draw_text_ui_style(tr("MAX"), set_speed_x + 6, cur_y + 73, 28, set_speed_color, font=self._font_display, border_width=1.0, shadow_offset=4.0, align="left_top", y_offset=0.0)
+
+  def _get_cruise_speed_text_and_color(self):
+    if self._debug_speed_panel:
+      return "80", rl.Color(128, 216, 166, 255)
+    if not self.is_cruise_set:
+      return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
+
+    set_speed = self.set_speed
+    if not ui_state.is_metric:
+      set_speed *= KM_TO_MILE
+    return str(round(set_speed)), rl.Color(128, 216, 166, 255)
 
   def _get_driving_mode_text_and_color(self) -> tuple[str, rl.Color]:
     carState = ui_state.sm["carState"]
