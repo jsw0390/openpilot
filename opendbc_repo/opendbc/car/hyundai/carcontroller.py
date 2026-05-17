@@ -575,11 +575,19 @@ class CarController(CarControllerBase):
 
     return None
 
-  def _ray_ev_cruise_step_active(self, CS):
+  def _ray_ev_cruise_state_from_gear(self, CS):
     try:
-      return int(CS.out.gearStep) == 7
+      gear_step = int(CS.out.gearStep)
     except Exception:
+      return None
+
+    # Ray EV ELECT_GEAR step doubles as a stock cluster display state:
+    # 7 means cruise set, while 0~4 are D/regen/i-Pedal after cruise release.
+    if gear_step == 7:
+      return True
+    if 0 <= gear_step <= 4:
       return False
+    return None
 
   def _ray_ev_speed_tracking_target(self, target, current, v_ego_kph, hud_control):
     if target <= 0:
@@ -625,7 +633,7 @@ class CarController(CarControllerBase):
     current = int(CS.out.cruiseState.speed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH) + 0.5)
     v_ego_kph = CS.out.vEgo * CV.MS_TO_KPH
     is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
-    ray_ev_cruise_step_active = is_ray_ev and CC.enabled and self._ray_ev_cruise_step_active(CS)
+    ray_ev_cruise_state = self._ray_ev_cruise_state_from_gear(CS) if is_ray_ev and CC.enabled else None
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
     physical_button_edge = physical_button != self.ray_ev_prev_cruise_button and physical_button != Buttons.NONE
     self.ray_ev_prev_cruise_button = physical_button
@@ -640,10 +648,16 @@ class CarController(CarControllerBase):
       elif physical_button == Buttons.SET_DECEL:
         self.ray_ev_estimated_cruise_speed = max(30, self.ray_ev_estimated_cruise_speed - 1)
       self.ray_ev_cruise_enabled_last = True
-    ray_ev_cruise_active = (
-      CS.out.cruiseState.enabled or ray_ev_cruise_step_active or
-      (is_ray_ev and self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
-    )
+    if is_ray_ev:
+      if ray_ev_cruise_state is not None:
+        ray_ev_cruise_active = ray_ev_cruise_state
+      else:
+        ray_ev_cruise_active = (
+          CS.out.cruiseState.enabled or
+          (self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
+        )
+    else:
+      ray_ev_cruise_active = CS.out.cruiseState.enabled
     ray_ev_using_estimate = False
 
     if is_ray_ev:

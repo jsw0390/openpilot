@@ -559,6 +559,11 @@ class HudRenderer(Widget):
   def _get_cruise_speed_text_and_color(self):
     if self._debug_speed_panel:
       return "80", COLORS.ENGAGED
+    if self._is_ray_ev():
+      ray_speed = self._get_ray_ev_target_speed()
+      if ray_speed is None:
+        return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
+      return str(round(ray_speed)), COLORS.ENGAGED
     if not self.is_cruise_set:
       return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
 
@@ -566,6 +571,22 @@ class HudRenderer(Widget):
     if not ui_state.is_metric:
       set_speed *= KM_TO_MILE
     return str(round(set_speed)), COLORS.ENGAGED
+
+  def _is_ray_ev(self):
+    return ui_state.CP is not None and "KIA_RAY_EV" in str(getattr(ui_state.CP, "carFingerprint", ""))
+
+  def _get_ray_ev_target_speed(self):
+    try:
+      hud_control = ui_state.sm['carControl'].hudControl
+      if not hud_control.speedVisible:
+        return None
+      speed_kph = float(hud_control.setSpeed) * CV.MS_TO_KPH
+    except Exception:
+      return None
+
+    if not 0 < speed_kph < SET_SPEED_NA:
+      return None
+    return speed_kph if ui_state.is_metric else speed_kph * KM_TO_MILE
 
   def _draw_carrot_lower_status(self, bx: int, by: int):
     mode_text, mode_color = self._get_driving_mode_text_and_color()

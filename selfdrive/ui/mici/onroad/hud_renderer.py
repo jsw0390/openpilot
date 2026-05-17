@@ -291,9 +291,6 @@ class HudRenderer(Widget):
 
     self._draw_set_speed(rect)
 
-    if self.is_cruise_set:
-      self._draw_set_speed_sunny(rect)
-
     self._draw_steering_wheel(rect)
 
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
@@ -670,6 +667,11 @@ class HudRenderer(Widget):
   def _get_cruise_speed_text_and_color(self):
     if self._debug_speed_panel:
       return "80", rl.Color(128, 216, 166, 255)
+    if self._is_ray_ev():
+      ray_speed = self._get_ray_ev_target_speed()
+      if ray_speed is None:
+        return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
+      return str(round(ray_speed)), rl.Color(128, 216, 166, 255)
     if not self.is_cruise_set:
       return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
 
@@ -677,6 +679,22 @@ class HudRenderer(Widget):
     if not ui_state.is_metric:
       set_speed *= KM_TO_MILE
     return str(round(set_speed)), rl.Color(128, 216, 166, 255)
+
+  def _is_ray_ev(self):
+    return ui_state.CP is not None and "KIA_RAY_EV" in str(getattr(ui_state.CP, "carFingerprint", ""))
+
+  def _get_ray_ev_target_speed(self):
+    try:
+      hud_control = ui_state.sm['carControl'].hudControl
+      if not hud_control.speedVisible:
+        return None
+      speed_kph = float(hud_control.setSpeed) * CV.MS_TO_KPH
+    except Exception:
+      return None
+
+    if not 0 < speed_kph < SET_SPEED_NA:
+      return None
+    return speed_kph if ui_state.is_metric else speed_kph * KM_TO_MILE
 
   def _get_driving_mode_text_and_color(self) -> tuple[str, rl.Color]:
     carState = ui_state.sm["carState"]
