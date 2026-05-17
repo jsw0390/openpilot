@@ -645,7 +645,7 @@ class HudRenderer(Widget):
     """Draw only the current vehicle speed in the bottom-left HUD slot."""
     panel_h = 115
     panel_x = int(rect.x + 10)
-    panel_y = int(rect.y + rect.height - panel_h - 10)
+    panel_y = int(rect.y + rect.height - panel_h - 92)
 
     if self._debug_speed_panel:
       cur_speed_int = 123

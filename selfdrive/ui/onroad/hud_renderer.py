@@ -1124,7 +1124,7 @@ class HudRenderer(Widget):
 
     # C drawHud anchor
     bx = int(rect.x + 140)
-    by = int(rect.y + rect.height - 230)
+    by = int(rect.y + rect.height - 300)
 
     self._draw_carrot_speed_panel(bx, by)
   
