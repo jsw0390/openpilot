@@ -668,6 +668,8 @@ class HudRenderer(Widget):
     if self._debug_speed_panel:
       return "80", rl.Color(128, 216, 166, 255)
     if self._is_ray_ev():
+      if not self._engaged:
+        return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
       if self.is_cruise_set:
         set_speed = self.set_speed
         if not ui_state.is_metric:

@@ -18,7 +18,7 @@ from opendbc.car.fw_versions import ObdCallback
 from opendbc.car.car_helpers import get_car, interfaces
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import VCruiseCarrot
+from openpilot.selfdrive.car.cruise import VCruiseCarrot, V_CRUISE_UNSET
 from openpilot.selfdrive.car.car_specific import MockCarState
 
 REPLAY = "REPLAY" in os.environ
@@ -207,6 +207,8 @@ class Car:
     else:
       v_cruise_kph = self.v_cruise_helper.v_cruise_kph
       v_cruise_cluster_kph = self.v_cruise_helper.v_cruise_cluster_kph
+      if self.v_cruise_helper.is_ray_ev and not self.sm['carControl'].enabled and not CS.cruiseState.enabled:
+        v_cruise_kph = v_cruise_cluster_kph = V_CRUISE_UNSET
     CS.logCarrot = self.v_cruise_helper.log
     CS.vCruise = float(v_cruise_kph)
     CS.vCruiseCluster = float(v_cruise_cluster_kph)

@@ -649,13 +649,11 @@ class CarController(CarControllerBase):
         self.ray_ev_estimated_cruise_speed = max(30, self.ray_ev_estimated_cruise_speed - 1)
       self.ray_ev_cruise_enabled_last = True
     if is_ray_ev:
-      if ray_ev_cruise_state is not None:
-        ray_ev_cruise_active = ray_ev_cruise_state
-      else:
-        ray_ev_cruise_active = (
-          CS.out.cruiseState.enabled or
-          (self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
-        )
+      ray_ev_cruise_active = (
+        CS.out.cruiseState.enabled or
+        ray_ev_cruise_state is True or
+        (ray_ev_cruise_state is None and self.ray_ev_cruise_enabled_last and CC.enabled and self.ray_ev_activate_retry <= 0 and v_ego_kph > 10.0)
+      )
     else:
       ray_ev_cruise_active = CS.out.cruiseState.enabled
     ray_ev_using_estimate = False
