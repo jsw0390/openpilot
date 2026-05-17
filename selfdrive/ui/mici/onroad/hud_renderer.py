@@ -214,9 +214,6 @@ class HudRenderer(Widget):
     self._txt_wheel_critical = gui_app.texture('icons_mici/wheel_critical.png', 50, 50)
     self._txt_exclamation_point: rl.Texture = gui_app.texture('icons_mici/exclamation_point.png', 9, 44)
 
-    # Bottom-left speed panel background
-    self._txt_speed_bg: rl.Texture = gui_app.texture('images/speed_bg.png', 307, 115)
-
     self._wheel_alpha_filter = FirstOrderFilter(0, 0.05, 1 / gui_app.target_fps)
     self._wheel_y_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
 
@@ -645,27 +642,11 @@ class HudRenderer(Widget):
     return gap
 
   def _draw_set_speed(self, rect: rl.Rectangle) -> None:
-    """
-    Bottom-left speed panel (like your 3rd image)
-    - Background: images/speed_bg.png
-    - Overlays: current speed, set speed, traffic light, cruise gap (1~4), gear (D/P/R/N)
-    """
-    ov = self._set_speed_override.compute(ui_state.sm, float(self.set_speed))
+    """Draw only the current vehicle speed in the bottom-left HUD slot."""
+    panel_h = 115
+    panel_x = int(rect.x + 10)
+    panel_y = int(rect.y + rect.height - panel_h - 10)
 
-    # ----- panel placement (bottom-left) -----
-    bg = self._txt_speed_bg
-    panel_w = bg.width
-    panel_h = bg.height
-
-    margin_x = 10
-    margin_y = 10
-    panel_x = int(rect.x + margin_x)
-    panel_y = int(rect.y + rect.height - panel_h - margin_y)
-
-    # draw background
-    rl.draw_texture(bg, panel_x, panel_y, rl.WHITE)
-
-    # ----- current speed (big, left) -----
     if self._debug_speed_panel:
       cur_speed_int = 123
     else:
@@ -680,138 +661,6 @@ class HudRenderer(Widget):
     cur_y = int(panel_y + panel_h * 0.48 - cur_size.y * 0.5) - 2
 
     draw_text_ui_style(cur_text, cur_x, cur_y, cur_font, rl.WHITE, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-
-    mode_text, mode_color = self._get_driving_mode_text_and_color()
-    if self._debug_speed_panel:
-      mode_text = "safe"
-      mode_color = rl.Color(0, 255, 0, 230)
-
-    if mode_text:
-      mode_font = 25
-      mode_size = measure_text_cached(self._font_semi_bold, mode_text, mode_font)
-
-      mode_x = panel_x + 5
-      mode_y = int(panel_y + panel_h * 0.05 - mode_size.y * 0.5 - 15)
-
-      draw_text_ui_style(mode_text, mode_x, mode_y, mode_font, mode_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-
-    # ----- set speed (center, smaller) -----
-    show_set = self._engaged and self.is_cruise_set
-    if True: #show_set or self._debug_speed_panel:
-      if show_set:
-        set_speed = self.set_speed
-        if not ui_state.is_metric:
-          set_speed *= KM_TO_MILE
-        set_text = str(int(round(set_speed)))
-      else:
-        set_text = "--"
-
-      set_color = rl.Color(0, 255, 0, 230)
-
-      if self._debug_speed_panel:
-        set_text = str(123)
-
-      set_font = 40
-      set_size = measure_text_cached(self._font_display, set_text, set_font)
-      set_x = int(panel_x + panel_w * 0.76 - set_size.x * 0.5)
-      set_y = int(panel_y + panel_h * 0.33 - set_size.y * 0.5)
-      draw_text_ui_style(set_text, set_x, set_y, set_font, set_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-      if ov.active:
-        set_speed = ov.speed_kph
-        if not ui_state.is_metric:
-          set_speed *= KM_TO_MILE
-        set_text = str(int(round(set_speed)))
-        set_label_text = ov.label
-
-        if ov.speed_color_mode == 1:      # eco
-          set_color = rl.Color(0, 255, 0, 230)
-        elif ov.speed_color_mode == 2:    # apply
-          set_color = rl.Color(255, 165, 0, 230)
-        else:
-          set_color = rl.Color(0, 255, 0, 230)   # your sample is green
-
-        if self._debug_speed_panel:
-          set_text = str(111)
-          set_color = rl.Color(255, 165, 0, 230)
-          set_label_text = "vturn"
-
-        set_font = 40
-        set_size = measure_text_cached(self._font_display, set_text, set_font)
-        set_x = int(panel_x + panel_w * 0.90 - set_size.x * 0.5 + 50)
-        set_y = int(panel_y + panel_h * 0.25 - set_size.y * 0.5)
-        draw_text_ui_style(set_text, set_x, set_y, set_font, set_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-        set_font = 30
-        set_size = measure_text_cached(self._font_display, set_label_text, set_font)
-        set_x = int(panel_x + panel_w * 0.90 - set_size.x * 0.5 + 50)
-        set_y = int(panel_y + panel_h * 0.10 - set_size.y * 0.5 - 20)
-        draw_text_ui_style(set_label_text, set_x, set_y, set_font, set_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-
-    # ----- cruise gap (small circle + number, bottom-mid-right) -----
-    gap = self._get_cruise_gap()
-    gap_center_x = int(panel_x + panel_w * 0.90)
-    gap_center_y = int(panel_y + panel_h * 0.82)
-    #rl.draw_circle_lines(gap_center_x, gap_center_y, 16, rl.WHITE)
-
-    gap_text = str(gap)
-    gap_font = 28
-    gap_size = measure_text_cached(self._font_semi_bold, gap_text, gap_font)
-    draw_text_ui_style(gap_text, gap_center_x, gap_center_y, gap_font, rl.WHITE, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="center", y_offset=0.0)
-
-    # active carrot
-    sm = ui_state.sm
-    active_carrot = sm['carrotMan'].activeCarrot
-    if active_carrot >= 2:
-      x = int(panel_x + panel_w * 0.60)
-      y = int(panel_y + panel_h * 0.82)
-      draw_text_ui_style("NAV", x, y, 26, rl.GREEN, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-
-
-    # ----- gear (right side box with letter) -----
-    gear = self._get_gear_text()
-    box_w = 44
-    box_h = 54
-    box_x = int(panel_x + panel_w - box_w - 14 + 70)
-    box_y = int(panel_y + panel_h * 0.50)
-
-    # Fill (dark) + border (green)
-    rl.draw_rectangle_rounded(rl.Rectangle(box_x, box_y, box_w, box_h), 0.2, 8, rl.Color(0, 0, 0, 120))
-    rl.draw_rectangle_rounded_lines_ex(rl.Rectangle(box_x, box_y, box_w, box_h), 0.2, 8, 3, rl.Color(0, 255, 0, 230))
-
-    gear_font = 44
-    gear_size = measure_text_cached(self._font_display, gear, gear_font)
-    rl.draw_text_ex(
-      self._font_display,
-      gear,
-      rl.Vector2(box_x + (box_w - gear_size.x) * 0.5, box_y + (box_h - gear_size.y) * 0.5),
-      gear_font,
-      0,
-      rl.WHITE,
-    )
-
-    # 기존 레인모드/레인리스 출력 코드 제거
-    """
-    if self._debug_speed_panel:
-      active_lane_line = True
-    else:
-      active_lane_line = bool(ui_state.sm['controlsState'].activeLaneLine)
-
-    line1 = "lane"
-    line2 = "mode" if active_lane_line else "less"
-
-    lane_font = 26  # 원하면 22~30 사이로 조절
-    lane_color = rl.Color(255, 255, 255, 220)  # 흰색
-
-    lane_x = box_x + box_w + 80
-    lane_y1 = box_y + 2
-    lane_y2 = box_y + 2 + lane_font + 2
-
-    # 오른쪽 정렬(gear box 옆에 딱 붙게)
-    s1 = measure_text_cached(self._font_semi_bold, line1, lane_font)
-    s2 = measure_text_cached(self._font_semi_bold, line2, lane_font)
-
-    draw_text_ui_style(line1, lane_x - s1.x, lane_y1, lane_font, lane_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-    draw_text_ui_style(line2, lane_x - s2.x, lane_y2, lane_font, lane_color, font=self._font_display, border_width=1.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-    """
 
   def _get_driving_mode_text_and_color(self) -> tuple[str, rl.Color]:
     carState = ui_state.sm["carState"]

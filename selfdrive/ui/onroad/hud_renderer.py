@@ -153,8 +153,6 @@ class HudRenderer(Widget):
     self._exp_button = ExpButton(UI_CONFIG.button_size, UI_CONFIG.wheel_icon_size)
     self._torque_bar = TorqueBar()
 
-    self._txt_speed_bg = gui_app.texture('images/speed_bg.png')
-
     # traffic light icon들 이름은 실제 프로젝트 리소스 이름에 맞춰 수정 가능
     self._traffic_red_icon = gui_app.texture('images/traffic_red.png')
     self._traffic_green_icon = gui_app.texture('images/traffic_green.png')
@@ -530,11 +528,6 @@ class HudRenderer(Widget):
       self._draw_texture_rect(self._traffic_green_icon, x - icon_green / 2, y - icon_green / 2, icon_green, icon_green)
 
   def _draw_carrot_speed_panel(self, bx: int, by: int):
-    sm = ui_state.sm
-    ov = self._set_speed_override.compute(sm, float(self.set_speed))
-
-    self._draw_texture_rect(self._txt_speed_bg, bx - 100, by - 60, 350, 150)
-
     cur_speed_int = 123 if self._debug_speed_panel else int(round(self.speed))
     cur_text = str(cur_speed_int)
 
@@ -545,56 +538,6 @@ class HudRenderer(Widget):
       shadow_offset=8.0,
       align="center_bottom",
     )
-
-    if self._engaged and self.is_cruise_set:
-      set_speed = float(self.set_speed)
-      if not ui_state.is_metric:
-        set_speed *= KM_TO_MILE
-      cruise_text = str(int(round(set_speed)))
-    else:
-      cruise_text = "--"
-
-    draw_text_ui_style(
-      cruise_text, bx + 170, by + 15 + 5, 60, rl.GREEN,
-      font=self._font_display,
-      border_width=1.0,
-      shadow_offset=5.0,
-      align="center_bottom",
-    )
-
-    if ov.active:
-      ov_speed = float(ov.speed_kph)
-      if not ui_state.is_metric:
-        ov_speed *= KM_TO_MILE
-      ov_text = str(int(round(ov_speed)))
-      ov_label = ov.label
-
-      if ov.speed_color_mode == 1:
-        ov_color = rl.GREEN
-      elif ov.speed_color_mode == 2:
-        ov_color = rl.Color(255, 165, 0, 230)
-      else:
-        ov_color = rl.GREEN
-
-      if self._debug_speed_panel:
-        ov_text = "111"
-        ov_label = "vturn"
-
-      draw_text_ui_style(
-        ov_text, bx + 250, by - 50 + 5, 50, ov_color,
-        font=self._font_display,
-        border_width=1.0,
-        shadow_offset=5.0,
-        align="center_bottom",
-      )
-
-      draw_text_ui_style(
-        ov_label, bx + 250, by - 100, 30, ov_color,
-        font=self._font_display,
-        border_width=1.0,
-        shadow_offset=5.0,
-        align="center_bottom",
-      )
 
   def _draw_carrot_lower_status(self, bx: int, by: int):
     mode_text, mode_color = self._get_driving_mode_text_and_color()
@@ -1183,13 +1126,7 @@ class HudRenderer(Widget):
     bx = int(rect.x + 140)
     by = int(rect.y + rect.height - 230)
 
-    self._draw_carrot_main_background(bx, by)
-    self._draw_carrot_traffic_light(bx, by)
     self._draw_carrot_speed_panel(bx, by)
-    self._draw_carrot_lower_status(bx, by)
-    self._draw_carrot_speed_limit_box(bx, by)
-    self._draw_carrot_device_state(bx, by)
-    self._draw_turn_info_hud(rect)
   
 
 

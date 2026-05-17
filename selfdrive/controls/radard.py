@@ -336,6 +336,31 @@ def get_RadarState_from_vision(md, lead_msg: capnp._DynamicStructReader, v_ego: 
     "radarTrackId": -1,
   }
 
+
+_LEAD_FLOAT_FIELDS = (
+  "dRel", "yRel", "vRel", "aRel", "vLead", "dPath", "vLat", "vLeadK",
+  "aLeadK", "aLeadTau", "modelProb", "aLead", "jLead", "score",
+)
+_LEAD_BOOL_FIELDS = ("fcw", "status", "radar")
+
+
+def clean_lead_data(lead_dict: dict[str, Any]) -> dict[str, Any]:
+  clean = dict(lead_dict) if isinstance(lead_dict, dict) else {"status": False}
+
+  for name in _LEAD_FLOAT_FIELDS:
+    if name in clean:
+      clean[name] = float(clean[name])
+
+  for name in _LEAD_BOOL_FIELDS:
+    if name in clean:
+      clean[name] = bool(clean[name])
+
+  if "radarTrackId" in clean:
+    clean["radarTrackId"] = int(clean["radarTrackId"])
+
+  return clean
+
+
 class VisionTrack:
   def __init__(self, radar_ts):
     self.radar_ts = radar_ts
@@ -364,7 +389,7 @@ class VisionTrack:
 
   def get_lead(self, md):
     #aLeadK = 0.0 if self.mixRadarInfo in [3] else clip(self.aLeadK, self.aLead - 1.0, self.aLead + 1.0)
-    return {
+    return clean_lead_data({
       "dRel": self.dRel,
       "yRel": self.yRel,
       "dPath": self.dPath,
@@ -383,7 +408,7 @@ class VisionTrack:
       "radarTrackId": -1,
       #"aLead": self.aLead,
       #"vLat": self.vLat,
-    }
+    })
 
   def reset(self):
     self.status = False
@@ -667,7 +692,7 @@ class RadarD:
           #lead_dict = closest_track.get_RadarState(lead_prob, self.vision_tracks[0].yRel, self.vision_tracks[0].vLat)
           lead_dict = closest_track.get_RadarState(lead_prob, self.vision_tracks[0].yRel)
 
-    lead_dict = self._ray_vision_lead_hold_update(index, lead_dict, lead_prob)
+    lead_dict = clean_lead_data(self._ray_vision_lead_hold_update(index, lead_dict, lead_prob))
 
     return lead_dict, radar
 

@@ -42,6 +42,8 @@ class TrafficState(Enum):
     return self.name
 
 A_CRUISE_MAX_BP_CARROT = [0., 10 * CV.KPH_TO_MS, 40 * CV.KPH_TO_MS, 60 * CV.KPH_TO_MS, 80 * CV.KPH_TO_MS, 110 * CV.KPH_TO_MS, 140 * CV.KPH_TO_MS]
+RAY_EV_REGEN_CRUISE_STEP = 7
+RAY_EV_REGEN_MAX_LEVEL = 4
 
 class CarrotPlanner:
   def __init__(self, CP=None):
@@ -149,6 +151,11 @@ class CarrotPlanner:
     self.rayVisionCruiseTFollowAdd = 0.35
     self.rayVisionCruiseAccelFactor = 0.8
     self.ray_vision_road_target_kph = 0.0
+    self.ray_ev_regen_raw_step = 0
+    self.ray_ev_regen_level = 0
+    self.ray_ev_regen_level_last = 0
+    self.ray_ev_ipedal_active = False
+    self.ray_ev_cruise_step_active = False
     self._read_ray_vision_params()
 
   def _read_ray_vision_params(self):
@@ -208,6 +215,33 @@ class CarrotPlanner:
 
   def _ray_vision_cruise_enabled(self):
     return self.is_ray_ev and self.rayVisionCruiseControl > 0
+
+  def _update_ray_ev_regen_state(self, carstate):
+    try:
+      raw_step = int(carstate.gearStep)
+    except Exception:
+      raw_step = 0
+
+    if not self.is_ray_ev:
+      self.ray_ev_regen_raw_step = raw_step
+      self.ray_ev_regen_level = 0
+      self.ray_ev_regen_level_last = 0
+      self.ray_ev_ipedal_active = False
+      self.ray_ev_cruise_step_active = False
+      return
+
+    self.ray_ev_regen_raw_step = raw_step
+    self.ray_ev_cruise_step_active = raw_step == RAY_EV_REGEN_CRUISE_STEP
+
+    # Ray EV ELECT_GEAR step is a regen display value:
+    # 0 = D, 1~3 = regen, 4 = i-Pedal, 7 = cruise-set display.
+    if 0 <= raw_step <= RAY_EV_REGEN_MAX_LEVEL:
+      self.ray_ev_regen_level = raw_step
+      self.ray_ev_regen_level_last = raw_step
+    else:
+      self.ray_ev_regen_level = self.ray_ev_regen_level_last
+
+    self.ray_ev_ipedal_active = raw_step == RAY_EV_REGEN_MAX_LEVEL
 
   def get_carrot_accel(self, v_ego):
     cruiseMaxVals = [self.cruiseMaxVals0, self.cruiseMaxVals1, self.cruiseMaxVals2, self.cruiseMaxVals3, self.cruiseMaxVals4, self.cruiseMaxVals5, self.cruiseMaxVals6]
@@ -515,6 +549,7 @@ class CarrotPlanner:
 
     self.events = Events()
     carstate = sm['carState']
+    self._update_ray_ev_regen_state(carstate)
     vCluRatio = carstate.vCluRatio
     #controlsState = sm['controlsState']
     radarstate = sm['radarState']
