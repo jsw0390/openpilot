@@ -169,6 +169,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ShowPathColorLane", {PERSISTENT, INT, "13"}},
     {"ShowPlotMode", {PERSISTENT, INT, "0"}},
     {"ShowCustomBrightness", {PERSISTENT, INT, "100"}},
+    {"ShowModelView", {PERSISTENT, INT, "0"}},
+    {"ClusterHud", {PERSISTENT, INT, "0"}},
+    {"ClusterHudTheme", {PERSISTENT, INT, "0"}},
+    {"ClusterHudLiveFps", {PERSISTENT, INT, "0"}},
     {"RecordRoadCam", {PERSISTENT, INT, "0"}},
     {"HDPuse", {PERSISTENT, INT, "0"}},
 
@@ -181,6 +185,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AutoGasSyncSpeed", {PERSISTENT, INT, "1"} },
     {"ApplyModelSpeed", {PERSISTENT, INT, "0"} },
     {"AutoEngage", {PERSISTENT, INT, "0"}},
+    {"AlwaysLateral", {PERSISTENT, INT, "1"} },
     {"DisableMinSteerSpeed", {PERSISTENT, INT, "0"}},
     {"AutoCurveSpeedLowerLimit", {PERSISTENT, INT, "30"}},
     {"AutoCurveSpeedFactor", {PERSISTENT, INT, "120"}},
