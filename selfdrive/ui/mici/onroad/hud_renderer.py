@@ -291,8 +291,6 @@ class HudRenderer(Widget):
 
     self._draw_set_speed(rect)
 
-    self._draw_steering_wheel(rect)
-
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
     wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else self._txt_wheel
 
@@ -639,10 +637,7 @@ class HudRenderer(Widget):
     return gap
 
   def _draw_set_speed(self, rect: rl.Rectangle) -> None:
-    """Draw current vehicle speed with the cruise set speed beside it."""
-    panel_h = 115
-    panel_x = int(rect.x + 10)
-    panel_y = int(rect.y + rect.height - panel_h - 92)
+    """Draw cruise set speed above the current vehicle speed."""
 
     if self._debug_speed_panel:
       cur_speed_int = 123
@@ -651,22 +646,23 @@ class HudRenderer(Widget):
 
     cur_text = str(cur_speed_int)
 
-    cur_font = 80
-    cur_size = measure_text_cached(self._font_display, cur_text, cur_font)
-    cur_x = panel_x + 18
-    set_speed_x = panel_x + 172
-
-    cur_y = int(panel_y + panel_h * 0.48 - cur_size.y * 0.5) - 2
-
-    draw_text_ui_style(cur_text, cur_x, cur_y, cur_font, rl.WHITE, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-
     set_speed_text, set_speed_color = self._get_cruise_speed_text_and_color()
-    draw_text_ui_style(set_speed_text, set_speed_x, cur_y, cur_font, set_speed_color, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="left_top", y_offset=0.0)
-    draw_text_ui_style(tr("MAX"), set_speed_x + 6, cur_y + 73, 28, set_speed_color, font=self._font_display, border_width=1.0, shadow_offset=4.0, align="left_top", y_offset=0.0)
+
+    speed_center_x = int(rect.x + 58)
+    current_bottom_y = int(rect.y + rect.height - 14)
+    max_label_bottom_y = current_bottom_y - 74
+    cruise_bottom_y = current_bottom_y - 108
+
+    draw_text_ui_style(set_speed_text, speed_center_x, cruise_bottom_y, 50, set_speed_color, font=self._font_display, border_width=1.5, shadow_offset=6.0, align="center_bottom", y_offset=0.0)
+    draw_text_ui_style(tr("MAX"), speed_center_x, max_label_bottom_y, 22, set_speed_color, font=self._font_display, border_width=1.0, shadow_offset=4.0, align="center_bottom", y_offset=0.0)
+    draw_text_ui_style(cur_text, speed_center_x, current_bottom_y, 68, rl.WHITE, font=self._font_display, border_width=2.0, shadow_offset=8.0, align="center_bottom", y_offset=0.0)
 
   def _get_cruise_speed_text_and_color(self):
     if self._debug_speed_panel:
       return "80", rl.Color(128, 216, 166, 255)
+    hud_speed = self._get_hud_target_speed()
+    if hud_speed is not None:
+      return str(round(hud_speed)), rl.Color(128, 216, 166, 255)
     if self._is_ray_ev():
       if not self._engaged:
         return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
@@ -691,6 +687,9 @@ class HudRenderer(Widget):
     return ui_state.CP is not None and "KIA_RAY_EV" in str(getattr(ui_state.CP, "carFingerprint", ""))
 
   def _get_ray_ev_target_speed(self):
+    return self._get_hud_target_speed()
+
+  def _get_hud_target_speed(self):
     try:
       hud_control = ui_state.sm['carControl'].hudControl
       if not hud_control.speedVisible:

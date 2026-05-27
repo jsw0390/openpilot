@@ -248,7 +248,10 @@ class Controls:
     if is_ray_ev:
       base_cruise_kph = float(CS.vCruiseCluster)
       if base_cruise_kph <= 0.0 or base_cruise_kph > 200.0:
-        base_cruise_kph = max(float(CS.vEgoCluster * CV.MS_TO_KPH), float(setSpeed * CV.MS_TO_KPH))
+        current_speed_kph = float(CS.vEgoCluster * CV.MS_TO_KPH)
+        if current_speed_kph <= 0.0:
+          current_speed_kph = float(CS.vEgo * CV.MS_TO_KPH)
+        base_cruise_kph = max(current_speed_kph, float(setSpeed * CV.MS_TO_KPH))
       ray_vision_cruise_enabled = self.params.get_int("RayVisionCruiseControl") > 0
       ray_speed_candidates = []
       if ray_vision_cruise_enabled:

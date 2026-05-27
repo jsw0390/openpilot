@@ -559,6 +559,9 @@ class HudRenderer(Widget):
   def _get_cruise_speed_text_and_color(self):
     if self._debug_speed_panel:
       return "80", COLORS.ENGAGED
+    hud_speed = self._get_ray_ev_target_speed()
+    if hud_speed is not None:
+      return str(round(hud_speed)), COLORS.ENGAGED
     if self._is_ray_ev():
       if not self._engaged:
         return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
