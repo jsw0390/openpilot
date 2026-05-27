@@ -188,10 +188,6 @@ class CarInterface(CarInterfaceBase):
       params.put_int("AutoCurveSpeedFactor", 120)
       params.put_int("AutoCurveSpeedAggressiveness", 90)
       params.put_int("AutoCurveSpeedLowerLimit", 45)
-      # Use the bundled pfeiferj/mapd v1.x binary for downloaded OSM speed
-      # limits and map curve speed when the user installs map data.
-      params.put_int("MapdEnabled", 1)
-      params.put_int("MapdRunOnroad", 1)
       print("$$$ Default settings applied to Kia Ray EV")
 
     ret.centerToFront = ret.wheelbase * 0.4

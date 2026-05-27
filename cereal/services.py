@@ -96,10 +96,6 @@ _services: dict[str, tuple] = {
 
   "carrotMan": (True, 0.),
   "navInstructionCarrot": (True, 1., 10),
-  "mapdOut": (True, 20., 20, QueueSize.MEDIUM),
-  "mapdExtendedOut": (True, 1., 1, QueueSize.MEDIUM),
-  "mapdIn": (True, 0., 1, QueueSize.MEDIUM),
-  "mapdCli": (True, 0., 1, QueueSize.MEDIUM),
 
   # debug
   "uiDebug": (True, 0., 1),

@@ -85,12 +85,6 @@ def enable_xiaoge_data(started, params, CP: car.CarParams) -> bool:
 def enable_webrtc(started, params, CP: car.CarParams) -> bool:
   return params.get_int("DisableDM") == 2
 
-def enable_mapd(started, params, CP: car.CarParams) -> bool:
-  if PC or not params.get_bool("MapdEnabled"):
-    return False
-  return params.get_bool("MapdDownloadActive") or (started and params.get_bool("MapdRunOnroad"))
-
-
 def enable_cluster_hud(started, params, CP: car.CarParams) -> bool:
   try:
     return params.get_int("ClusterHud") in (1, 2)
@@ -129,7 +123,6 @@ procs = [
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", enable_dm, enabled=(WEBCAM or not PC)),
   PythonProcess("qcomgpsd", "system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI),
   PythonProcess("navd", "selfdrive.navd.navd", only_onroad),
-  NativeProcess("mapd", "selfdrive", ["./mapd"], enable_mapd),
   PythonProcess("pandad", "selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),
