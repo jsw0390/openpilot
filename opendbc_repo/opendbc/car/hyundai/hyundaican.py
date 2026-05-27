@@ -98,7 +98,7 @@ def create_lkas11(packer, frame, CP, apply_torque, steer_req,
   return packer.make_can_msg("LKAS11", 0, values)
 
 
-def create_clu11(packer, frame, clu11, button, CP):
+def create_clu11(packer, frame, clu11, button, CP, main_button=False):
   values = {s: clu11[s] for s in [
     "CF_Clu_CruiseSwState",
     "CF_Clu_CruiseSwMain",
@@ -114,6 +114,8 @@ def create_clu11(packer, frame, clu11, button, CP):
     "CF_Clu_AliveCnt1",
   ]}
   values["CF_Clu_CruiseSwState"] = button
+  if main_button:
+    values["CF_Clu_CruiseSwMain"] = 1
   values["CF_Clu_AliveCnt1"] = frame % 0x10
   # send buttons to camera on camera-scc based cars
   bus = 2 if CP.flags & HyundaiFlags.CAMERA_SCC else 0
@@ -364,9 +366,11 @@ def create_frt_radar_opt(packer):
   }
   return packer.make_can_msg("FRT_RADAR11", 0, frt_radar11_values)
 
-def create_clu11_button(packer, frame, clu11, button, CP):
-  values = clu11
+def create_clu11_button(packer, frame, clu11, button, CP, main_button=False):
+  values = copy.copy(clu11)
   values["CF_Clu_CruiseSwState"] = button
+  if main_button:
+    values["CF_Clu_CruiseSwMain"] = 1
   #values["CF_Clu_AliveCnt1"] = frame % 0x10
   values["CF_Clu_AliveCnt1"] = (values["CF_Clu_AliveCnt1"] + 1) % 0x10
   # send buttons to camera on camera-scc based cars

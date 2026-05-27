@@ -20,6 +20,7 @@ from openpilot.common.params import Params
 MAX_ANGLE = 85
 MAX_ANGLE_FRAMES = 89
 MAX_ANGLE_CONSECUTIVE_FRAMES = 2
+RAY_EV_ACTIVATE_BUTTON = -1
 
 vibrate_intervals = [
   (0.0, 0.5),
@@ -479,7 +480,7 @@ class CarController(CarControllerBase):
       return can_sends
     ray_ev_op_long = self.CP.carFingerprint == CAR.KIA_RAY_EV and self.CP.openpilotLongitudinalControl
     if ray_ev_op_long:
-      cancel_request = CS.out.activateCruise < 0 and CS.out.vEgo > 30 / 3.6
+      cancel_request = CS.out.activateCruise < 0
     else:
       cancel_request = CC.cruiseControl.cancel or CS.out.activateCruise < 0
 
@@ -496,7 +497,9 @@ class CarController(CarControllerBase):
 
       if self.last_button_frame != self.frame:
         send_button = self.make_spam_button(CC, CS)
-        if send_button > 0:
+        if send_button == RAY_EV_ACTIVATE_BUTTON:
+          can_sends.append(hyundaican.create_clu11_button(self.packer, self.frame, CS.clu11, Buttons.NONE, self.CP, main_button=True))
+        elif send_button > 0:
           can_sends.append(hyundaican.create_clu11_button(self.packer, self.frame, CS.clu11, send_button, self.CP))
 
     else:
@@ -686,18 +689,18 @@ class CarController(CarControllerBase):
     if CC.enabled:
       if ray_ev_activation_requested and ray_ev_activation_allowed:
         self.ray_ev_activate_retry = max(self.ray_ev_activate_retry, 12)
-        send_button = Buttons.SET_DECEL
+        send_button = RAY_EV_ACTIVATE_BUTTON
         activate_cruise = True
         self.activateCruise = 1
       elif is_ray_ev and self.ray_ev_activate_retry > 0 and ray_ev_activation_allowed and not ray_ev_cruise_active:
-        send_button = Buttons.SET_DECEL
+        send_button = RAY_EV_ACTIVATE_BUTTON
         activate_cruise = True
         self.activateCruise = 1
         self.ray_ev_activate_retry -= 1
       elif not CS.out.cruiseState.enabled and not ray_ev_cruise_active:
         if ray_ev_activation_requested and ray_ev_activation_allowed:
           self.ray_ev_activate_retry = max(self.ray_ev_activate_retry, 12)
-          send_button = Buttons.SET_DECEL
+          send_button = RAY_EV_ACTIVATE_BUTTON
           activate_cruise = True
           self.activateCruise = 1
         elif (hud_control.leadVisible or v_ego_kph > 10.0) and not is_ray_ev and self.activateCruise == 0:
@@ -725,7 +728,7 @@ class CarController(CarControllerBase):
     elif CS.out.activateCruise and (not is_ray_ev or CS.out.activateCruise == 2): #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
-        send_button = Buttons.SET_DECEL if is_ray_ev else resume_button
+        send_button = RAY_EV_ACTIVATE_BUTTON if is_ray_ev else resume_button
         activate_cruise = True
 
     if CS.out.brakePressed:
@@ -760,16 +763,19 @@ class CarController(CarControllerBase):
     #  send_button_allowed, speed_diff, target, current, send_button, self.button_wait, self.button_spamming_count)
 
     if send_button_allowed or activate_cruise or (CC.cruiseControl.resume and self.frame % 2 == 0):
-      self.button_spamming_count = self.button_spamming_count + 1 if send_button == Buttons.RES_ACCEL else self.button_spamming_count - 1
-      if is_ray_ev and activate_cruise and send_button == Buttons.SET_DECEL:
+      if is_ray_ev and activate_cruise and send_button == RAY_EV_ACTIVATE_BUTTON:
         if self.ray_ev_activate_retry <= 0:
           self.ray_ev_cruise_enabled_last = True
         self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+        self.button_spamming_count = 0
       elif is_ray_ev and ray_ev_using_estimate:
+        self.button_spamming_count = self.button_spamming_count + 1 if send_button == Buttons.RES_ACCEL else self.button_spamming_count - 1
         if send_button == Buttons.RES_ACCEL:
           self.ray_ev_estimated_cruise_speed = min(160, self.ray_ev_estimated_cruise_speed + 1)
         elif send_button == Buttons.SET_DECEL:
           self.ray_ev_estimated_cruise_speed = max(30, self.ray_ev_estimated_cruise_speed - 1)
+      else:
+        self.button_spamming_count = self.button_spamming_count + 1 if send_button == Buttons.RES_ACCEL else self.button_spamming_count - 1
       return send_button
     else:
       self.button_spamming_count = 0

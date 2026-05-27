@@ -477,7 +477,7 @@ class VCruiseCarrot:
         if self.carrot_arg == "OFF":
           self._cruise_control(-2, -1, "Cruise off (carrot command)")
         elif self.carrot_arg == "ON":
-          self._cruise_control(1, -1, "Cruise on (carrot command)")
+          self._cruise_control(2 if self.is_ray_ev else 1, -1, "Cruise on (carrot command)")
         elif self.carrot_arg == "GO":
           if button_type == 0:
             button_type = ButtonType.accelCruise
@@ -535,9 +535,6 @@ class VCruiseCarrot:
           v_cruise_kph = button_kph
         else:
           v_cruise_kph = self._v_cruise_desired(CS, v_cruise_kph)
-        if self.is_ray_ev and not CC.enabled:
-          self._activate_cruise = 2
-          self._cruise_ready = False
         self.carrot_cruise_active = False
 
       elif button_type == ButtonType.decelCruise:
@@ -566,9 +563,6 @@ class VCruiseCarrot:
           #self._cruise_control(-2, -1, "Cruise off (decelCruise)")
           self.carrot_cruise_active = True
           #self.events.append(EventName.audioPrompt)
-        if self.is_ray_ev and not CC.enabled:
-          self._activate_cruise = 2
-          self._cruise_ready = False
         self._v_cruise_kph_at_brake = 0
 
       elif button_type == ButtonType.gapAdjustCruise:
