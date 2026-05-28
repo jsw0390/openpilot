@@ -23,6 +23,7 @@ MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 # On Ray EV, button value 4 is the physical pause/resume button.
 RAY_EV_ACTIVATE_BUTTON = Buttons.CANCEL
 RAY_EV_DRIVER_PAUSE_RESUME_FRAMES = 50
+RAY_EV_STATE_SYNC_WAIT_FRAMES = 40
 
 vibrate_intervals = [
   (0.0, 0.5),
@@ -637,7 +638,7 @@ class CarController(CarControllerBase):
     current = int(CS.out.cruiseState.speed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH) + 0.5)
     v_ego_kph = CS.out.vEgo * CV.MS_TO_KPH
     is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
-    ray_ev_cruise_state = self._ray_ev_cruise_state_from_gear(CS) if is_ray_ev and CC.enabled else None
+    ray_ev_cruise_state = self._ray_ev_cruise_state_from_gear(CS) if is_ray_ev else None
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
     physical_button_edge = physical_button != self.ray_ev_prev_cruise_button and physical_button != Buttons.NONE
     self.ray_ev_prev_cruise_button = physical_button
@@ -645,7 +646,8 @@ class CarController(CarControllerBase):
       self.ray_ev_pause_resume_frame = self.frame
     if is_ray_ev and not CC.enabled:
       self.ray_ev_activate_retry = 0
-      self.ray_ev_cruise_enabled_last = False
+      if ray_ev_cruise_state is not True:
+        self.ray_ev_cruise_enabled_last = False
     if is_ray_ev and CC.enabled and physical_button_edge and physical_button in (Buttons.RES_ACCEL, Buttons.SET_DECEL):
       if self.ray_ev_estimated_cruise_speed <= 0:
         self.ray_ev_estimated_cruise_speed = min(160, max(30, int((current if current > 0 else v_ego_kph) + 0.5)))
@@ -688,10 +690,15 @@ class CarController(CarControllerBase):
     resume_button = Buttons.RES_ACCEL
     ray_ev_activation_requested = is_ray_ev and CS.out.activateCruise == 2
     ray_ev_activation_allowed = v_ego_kph > 10.0 or (v_ego_kph <= 0.5 and hud_control.leadVisible)
-    ray_ev_driver_pause_resume = (
-      ray_ev_activation_requested and
+    ray_ev_recent_driver_pause_resume = (
+      is_ray_ev and
       (self.frame - self.ray_ev_pause_resume_frame) <= RAY_EV_DRIVER_PAUSE_RESUME_FRAMES
     )
+    ray_ev_driver_pause_resume = (
+      ray_ev_activation_requested and
+      ray_ev_recent_driver_pause_resume
+    )
+    ray_ev_state_sync = False
 
     if ray_ev_driver_pause_resume:
       self.ray_ev_activate_retry = 0
@@ -713,6 +720,12 @@ class CarController(CarControllerBase):
         activate_cruise = True
         self.activateCruise = 1
         self.ray_ev_activate_retry -= 1
+      # If the cluster has returned to a regen/i-Pedal step while comma is enabled,
+      # the stock cruise is paused; press the pause/resume button to realign it.
+      elif is_ray_ev and ray_ev_cruise_state is False and CS.out.activateCruise >= 0 and not ray_ev_recent_driver_pause_resume and ray_ev_activation_allowed:
+        send_button = RAY_EV_ACTIVATE_BUTTON
+        ray_ev_state_sync = True
+        self.activateCruise = 1
       elif not CS.out.cruiseState.enabled and not ray_ev_cruise_active:
         if ray_ev_activation_requested and ray_ev_activation_allowed:
           self.ray_ev_activate_retry = max(self.ray_ev_activate_retry, 12)
@@ -741,6 +754,10 @@ class CarController(CarControllerBase):
         )
         if not lead_blocking:
           send_button = Buttons.RES_ACCEL
+    # If comma is off but the cluster is still in cruise step 7, pause stock cruise.
+    elif is_ray_ev and ray_ev_cruise_state is True and not ray_ev_recent_driver_pause_resume and CS.out.activateCruise <= 0:
+      send_button = RAY_EV_ACTIVATE_BUTTON
+      ray_ev_state_sync = True
     elif CS.out.activateCruise and (not is_ray_ev or CS.out.activateCruise == 2): #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
@@ -778,7 +795,20 @@ class CarController(CarControllerBase):
     #CC.debugTextCC = "{} speed_diff={:.1f},{:.0f}/{:.0f}, button={}, button_wait={}, count={}".format(
     #  send_button_allowed, speed_diff, target, current, send_button, self.button_wait, self.button_spamming_count)
 
-    if send_button_allowed or activate_cruise or (CC.cruiseControl.resume and self.frame % 2 == 0):
+    if send_button_allowed or activate_cruise or ray_ev_state_sync or (CC.cruiseControl.resume and self.frame % 2 == 0):
+      if is_ray_ev and ray_ev_state_sync and send_button == RAY_EV_ACTIVATE_BUTTON:
+        self.last_button_frame = self.frame
+        self.button_wait = RAY_EV_STATE_SYNC_WAIT_FRAMES
+        self.button_spamming_count = 0
+        if CC.enabled:
+          self.ray_ev_cruise_enabled_last = True
+          if self.ray_ev_estimated_cruise_speed <= 0:
+            self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+        else:
+          self.ray_ev_cruise_enabled_last = False
+          self.ray_ev_estimated_cruise_speed = 0
+          self.ray_ev_speed_bias_active = False
+        return send_button
       if is_ray_ev and activate_cruise and send_button == RAY_EV_ACTIVATE_BUTTON:
         if self.ray_ev_activate_retry <= 0:
           self.ray_ev_cruise_enabled_last = True
