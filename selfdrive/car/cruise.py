@@ -592,11 +592,19 @@ class VCruiseCarrot:
         print("lfaButton")
       elif button_type == ButtonType.cancel:
         self._paddle_decel_active = False
-        if self._cancel_button_mode in [1]:
-          self._lat_enabled = False
-          self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
-        self._cruise_cancel_state = True
-        #self._v_cruise_kph_at_brake = 0
+        if self.is_ray_ev and not CC.enabled:
+          self._lat_enabled = True
+          self._activate_cruise = 2
+          self._cruise_ready = False
+          self._cruise_cancel_state = False
+          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+          self._add_log("Cruise on (pauseResume)")
+        else:
+          if self._cancel_button_mode in [1]:
+            self._lat_enabled = False
+            self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
+          self._cruise_cancel_state = True
+          #self._v_cruise_kph_at_brake = 0
       elif button_type == ButtonType.mainCruise:
         if CC.enabled:
           self._cruise_control(-1, -1, "Cruise off (mainCruise)")

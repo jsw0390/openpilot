@@ -562,25 +562,25 @@ class HudRenderer(Widget):
     hud_speed = self._get_ray_ev_target_speed()
     if hud_speed is not None:
       return str(round(hud_speed)), COLORS.ENGAGED
+    inactive_color = rl.Color(166, 166, 166, 170)
+    cruise_color = COLORS.ENGAGED if self._engaged else inactive_color
     if self._is_ray_ev():
-      if not self._engaged:
-        return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
       if self.is_cruise_set:
         set_speed = self.set_speed
         if not ui_state.is_metric:
           set_speed *= KM_TO_MILE
-        return str(round(set_speed)), COLORS.ENGAGED
+        return str(round(set_speed)), cruise_color
       ray_speed = self._get_ray_ev_target_speed()
       if ray_speed is None:
-        return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
-      return str(round(ray_speed)), COLORS.ENGAGED
+        return CRUISE_DISABLED_CHAR, inactive_color
+      return str(round(ray_speed)), cruise_color
     if not self.is_cruise_set:
-      return CRUISE_DISABLED_CHAR, rl.Color(166, 166, 166, 170)
+      return CRUISE_DISABLED_CHAR, inactive_color
 
     set_speed = self.set_speed
     if not ui_state.is_metric:
       set_speed *= KM_TO_MILE
-    return str(round(set_speed)), COLORS.ENGAGED
+    return str(round(set_speed)), cruise_color
 
   def _is_ray_ev(self):
     return ui_state.CP is not None and "KIA_RAY_EV" in str(getattr(ui_state.CP, "carFingerprint", ""))

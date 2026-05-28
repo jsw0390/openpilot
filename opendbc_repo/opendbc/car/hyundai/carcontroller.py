@@ -20,7 +20,9 @@ from openpilot.common.params import Params
 MAX_ANGLE = 85
 MAX_ANGLE_FRAMES = 89
 MAX_ANGLE_CONSECUTIVE_FRAMES = 2
-RAY_EV_ACTIVATE_BUTTON = -1
+# On Ray EV, button value 4 is the physical pause/resume button.
+RAY_EV_ACTIVATE_BUTTON = Buttons.CANCEL
+RAY_EV_DRIVER_PAUSE_RESUME_FRAMES = 50
 
 vibrate_intervals = [
   (0.0, 0.5),
@@ -141,6 +143,7 @@ class CarController(CarControllerBase):
     self.ray_ev_estimated_cruise_speed = 0
     self.ray_ev_activate_retry = 0
     self.ray_ev_prev_cruise_button = Buttons.NONE
+    self.ray_ev_pause_resume_frame = -(RAY_EV_DRIVER_PAUSE_RESUME_FRAMES + 1)
     self.ray_ev_speed_bias_active = False
 
     self.apply_angle_last = 0
@@ -497,9 +500,7 @@ class CarController(CarControllerBase):
 
       if self.last_button_frame != self.frame:
         send_button = self.make_spam_button(CC, CS)
-        if send_button == RAY_EV_ACTIVATE_BUTTON:
-          can_sends.append(hyundaican.create_clu11_button(self.packer, self.frame, CS.clu11, Buttons.NONE, self.CP, main_button=True))
-        elif send_button > 0:
+        if send_button > 0:
           can_sends.append(hyundaican.create_clu11_button(self.packer, self.frame, CS.clu11, send_button, self.CP))
 
     else:
@@ -640,6 +641,8 @@ class CarController(CarControllerBase):
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
     physical_button_edge = physical_button != self.ray_ev_prev_cruise_button and physical_button != Buttons.NONE
     self.ray_ev_prev_cruise_button = physical_button
+    if is_ray_ev and physical_button_edge and physical_button == Buttons.CANCEL:
+      self.ray_ev_pause_resume_frame = self.frame
     if is_ray_ev and not CC.enabled:
       self.ray_ev_activate_retry = 0
       self.ray_ev_cruise_enabled_last = False
@@ -685,6 +688,19 @@ class CarController(CarControllerBase):
     resume_button = Buttons.RES_ACCEL
     ray_ev_activation_requested = is_ray_ev and CS.out.activateCruise == 2
     ray_ev_activation_allowed = v_ego_kph > 10.0 or (v_ego_kph <= 0.5 and hud_control.leadVisible)
+    ray_ev_driver_pause_resume = (
+      ray_ev_activation_requested and
+      (self.frame - self.ray_ev_pause_resume_frame) <= RAY_EV_DRIVER_PAUSE_RESUME_FRAMES
+    )
+
+    if ray_ev_driver_pause_resume:
+      self.ray_ev_activate_retry = 0
+      self.ray_ev_cruise_enabled_last = True
+      self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+      self.activateCruise = 1
+      self.button_spamming_count = 0
+      self.prev_clu_speed = current
+      return 0
 
     if CC.enabled:
       if ray_ev_activation_requested and ray_ev_activation_allowed:

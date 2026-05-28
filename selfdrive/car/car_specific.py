@@ -237,7 +237,8 @@ class CarSpecificEvents:
     for b in CS.buttonEvents:
       # Disable on rising and falling edge of cancel for both stock and OP long
       # TODO: only check the cancel button with openpilot longitudinal on all brands to match panda safety
-      if b.type == ButtonType.cancel and (allow_button_cancel or not self.CP.pcmCruise):
+      ray_ev_pause_resume_enable = str(self.CP.carFingerprint) == "KIA_RAY_EV" and CS.activateCruise > 0
+      if b.type == ButtonType.cancel and not ray_ev_pause_resume_enable and (allow_button_cancel or not self.CP.pcmCruise):
         events.add(EventName.buttonCancel)
         if CS.gearShifter == GearShifter.park and not self.do_shutdown:
           self.do_shutdown = True
