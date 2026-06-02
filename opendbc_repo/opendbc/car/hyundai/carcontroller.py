@@ -639,6 +639,8 @@ class CarController(CarControllerBase):
     button_target = target
     current = int(CS.out.cruiseState.speed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH) + 0.5)
     v_ego_kph = CS.out.vEgo * CV.MS_TO_KPH
+    ray_ev_activation_target = target if 0 < target <= 160 else v_ego_kph
+    ray_ev_activation_estimate = min(160, max(30, int(ray_ev_activation_target + 0.5)))
     is_ray_ev = self.CP.carFingerprint == CAR.KIA_RAY_EV
     ray_ev_cruise_state = self._ray_ev_cruise_state_from_gear(CS) if is_ray_ev else None
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
@@ -711,7 +713,7 @@ class CarController(CarControllerBase):
     if ray_ev_driver_pause_resume:
       self.ray_ev_activate_retry = 0
       self.ray_ev_cruise_enabled_last = True
-      self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+      self.ray_ev_estimated_cruise_speed = ray_ev_activation_estimate
       self.activateCruise = 1
       self.button_spamming_count = 0
       self.prev_clu_speed = current
@@ -812,7 +814,7 @@ class CarController(CarControllerBase):
         if CC.enabled:
           self.ray_ev_cruise_enabled_last = True
           if self.ray_ev_estimated_cruise_speed <= 0:
-            self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+            self.ray_ev_estimated_cruise_speed = ray_ev_activation_estimate
         else:
           self.ray_ev_cruise_enabled_last = False
           self.ray_ev_estimated_cruise_speed = 0
@@ -822,7 +824,7 @@ class CarController(CarControllerBase):
         self.ray_ev_speed_sync_block_frame = self.frame
         if self.ray_ev_activate_retry <= 0:
           self.ray_ev_cruise_enabled_last = True
-        self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))
+        self.ray_ev_estimated_cruise_speed = ray_ev_activation_estimate
         self.button_spamming_count = 0
       elif is_ray_ev and ray_ev_using_estimate:
         self.button_spamming_count = self.button_spamming_count + 1 if send_button == Buttons.RES_ACCEL else self.button_spamming_count - 1

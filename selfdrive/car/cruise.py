@@ -504,6 +504,14 @@ class VCruiseCarrot:
     
     return v_cruise_kph, button_type, long_pressed
 
+  def _ray_ev_resume_speed(self, v_cruise_kph):
+    if 30 <= v_cruise_kph <= self._cruise_speed_max:
+      return v_cruise_kph
+    return max(self.v_ego_kph_set, self._cruise_speed_min)
+
+  def _ray_ev_set_speed(self):
+    return max(self.v_ego_kph_set, self._cruise_speed_min)
+
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:
       for b in CS.buttonEvents:
@@ -530,6 +538,8 @@ class VCruiseCarrot:
         if self._soft_hold_active > 0:
           self._soft_hold_active = 0
         elif self._cruise_ready or not CC.enabled or CS.cruiseState.standstill or self.carrot_cruise_active:
+          if self.is_ray_ev and not CC.enabled:
+            v_cruise_kph = self._ray_ev_resume_speed(v_cruise_kph)
           if False: #self._cruise_button_mode in [2, 3]:
             road_limit_kph = self.nRoadLimitSpeed * self.autoSpeedUptoRoadSpeedLimit
             if road_limit_kph > 1.0:
@@ -554,7 +564,7 @@ class VCruiseCarrot:
           self._paddle_decel_active = True
           pass
         elif not CC.enabled:
-          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+          v_cruise_kph = self._ray_ev_set_speed() if self.is_ray_ev else max(self.v_ego_kph_set, self._cruise_speed_min)
         elif self.is_ray_ev and self.v_ego_kph_set > v_cruise_kph + 2:
           v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
         elif self.v_ego_kph_set > v_cruise_kph + 2 and self._cruise_button_mode in [2, 3]:
@@ -604,7 +614,7 @@ class VCruiseCarrot:
           self._activate_cruise = 2
           self._cruise_ready = False
           self._cruise_cancel_state = False
-          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+          v_cruise_kph = self._ray_ev_resume_speed(v_cruise_kph)
           self._add_log("Cruise on (pauseResume)")
         else:
           if self._cancel_button_mode in [1]:
@@ -622,7 +632,7 @@ class VCruiseCarrot:
           self._pause_auto_speed_up = True
           self._activate_cruise = 2 if self.is_ray_ev else 1
           self._cruise_ready = False
-          v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
+          v_cruise_kph = self._ray_ev_set_speed() if self.is_ray_ev else max(self.v_ego_kph_set, self._cruise_speed_min)
           self._add_log("Cruise on (mainCruise)")
     else:
       if button_type == ButtonType.accelCruise:
@@ -859,7 +869,8 @@ class VCruiseCarrot:
         self.params.put_bool_nonblocking("ActivateCruiseAfterBrake", False)
         self._cruise_control(1, -1, "Cruise on (brake)")
       elif self.v_cruise_kph < self.v_ego_kph_set:
-        self.v_cruise_kph = self.v_ego_kph_set
+        if not self.is_ray_ev:
+          self.v_cruise_kph = self.v_ego_kph_set
 
     if self._soft_hold_active > 0:
       #self.events.append(EventName.softHold)
