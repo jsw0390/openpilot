@@ -23,6 +23,7 @@ MAX_ANGLE_CONSECUTIVE_FRAMES = 2
 # On Ray EV, button value 4 is the physical pause/resume button.
 RAY_EV_ACTIVATE_BUTTON = Buttons.CANCEL
 RAY_EV_DRIVER_PAUSE_RESUME_FRAMES = 50
+RAY_EV_SPEED_SYNC_BLOCK_FRAMES = 80
 RAY_EV_STATE_SYNC_WAIT_FRAMES = 40
 
 vibrate_intervals = [
@@ -145,6 +146,7 @@ class CarController(CarControllerBase):
     self.ray_ev_activate_retry = 0
     self.ray_ev_prev_cruise_button = Buttons.NONE
     self.ray_ev_pause_resume_frame = -(RAY_EV_DRIVER_PAUSE_RESUME_FRAMES + 1)
+    self.ray_ev_speed_sync_block_frame = -(RAY_EV_SPEED_SYNC_BLOCK_FRAMES + 1)
     self.ray_ev_speed_bias_active = False
 
     self.apply_angle_last = 0
@@ -644,6 +646,8 @@ class CarController(CarControllerBase):
     self.ray_ev_prev_cruise_button = physical_button
     if is_ray_ev and physical_button_edge and physical_button == Buttons.CANCEL:
       self.ray_ev_pause_resume_frame = self.frame
+    if is_ray_ev and physical_button_edge and physical_button in (Buttons.RES_ACCEL, Buttons.SET_DECEL):
+      self.ray_ev_speed_sync_block_frame = self.frame
     if is_ray_ev and not CC.enabled:
       self.ray_ev_activate_retry = 0
       if ray_ev_cruise_state is not True:
@@ -694,6 +698,10 @@ class CarController(CarControllerBase):
       is_ray_ev and
       (self.frame - self.ray_ev_pause_resume_frame) <= RAY_EV_DRIVER_PAUSE_RESUME_FRAMES
     )
+    ray_ev_speed_sync_blocked = (
+      is_ray_ev and
+      (self.frame - self.ray_ev_speed_sync_block_frame) <= RAY_EV_SPEED_SYNC_BLOCK_FRAMES
+    )
     ray_ev_driver_pause_resume = (
       ray_ev_activation_requested and
       ray_ev_recent_driver_pause_resume
@@ -738,11 +746,11 @@ class CarController(CarControllerBase):
           self.activateCruise = 1
       elif CC.cruiseControl.resume and not is_ray_ev:
         send_button = resume_button
-      elif button_target < current and current>= 31 and self.speed_from_pcm != 1:
+      elif not ray_ev_speed_sync_blocked and button_target < current and current>= 31 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         send_button = Buttons.SET_DECEL
-      elif button_target > current and current < 160 and self.speed_from_pcm != 1:
+      elif not ray_ev_speed_sync_blocked and button_target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         lead_blocking = (
@@ -795,10 +803,11 @@ class CarController(CarControllerBase):
     #CC.debugTextCC = "{} speed_diff={:.1f},{:.0f}/{:.0f}, button={}, button_wait={}, count={}".format(
     #  send_button_allowed, speed_diff, target, current, send_button, self.button_wait, self.button_spamming_count)
 
-    if send_button_allowed or activate_cruise or ray_ev_state_sync or (CC.cruiseControl.resume and self.frame % 2 == 0):
+    if send_button_allowed or activate_cruise or (CC.cruiseControl.resume and self.frame % 2 == 0):
       if is_ray_ev and ray_ev_state_sync and send_button == RAY_EV_ACTIVATE_BUTTON:
         self.last_button_frame = self.frame
         self.button_wait = RAY_EV_STATE_SYNC_WAIT_FRAMES
+        self.ray_ev_speed_sync_block_frame = self.frame
         self.button_spamming_count = 0
         if CC.enabled:
           self.ray_ev_cruise_enabled_last = True
@@ -810,6 +819,7 @@ class CarController(CarControllerBase):
           self.ray_ev_speed_bias_active = False
         return send_button
       if is_ray_ev and activate_cruise and send_button == RAY_EV_ACTIVATE_BUTTON:
+        self.ray_ev_speed_sync_block_frame = self.frame
         if self.ray_ev_activate_retry <= 0:
           self.ray_ev_cruise_enabled_last = True
         self.ray_ev_estimated_cruise_speed = min(160, max(30, int(v_ego_kph + 0.5)))

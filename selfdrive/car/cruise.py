@@ -190,6 +190,7 @@ class VCruiseCarrot:
     self._lat_enabled = self.params.get_int("AutoEngage") > 0
     self._v_cruise_kph_at_brake = 0
     self.cruise_state_available_last = False
+    self._ray_ev_cancel_pressed_while_enabled = False
 
     self._paddle_decel_active = False
     self.carrot_cruise_active = False
@@ -504,6 +505,11 @@ class VCruiseCarrot:
     return v_cruise_kph, button_type, long_pressed
 
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
+    if self.is_ray_ev:
+      for b in CS.buttonEvents:
+        if b.type == ButtonType.cancel and b.pressed:
+          self._ray_ev_cancel_pressed_while_enabled = CC.enabled
+
     button_kph, button_type, long_pressed = self._prepare_buttons(CS, v_cruise_kph)
 
     v_cruise_kph, button_type, long_pressed = self._carrot_command(v_cruise_kph, button_type, long_pressed)
@@ -592,8 +598,9 @@ class VCruiseCarrot:
         print("lfaButton")
       elif button_type == ButtonType.cancel:
         self._paddle_decel_active = False
-        if self.is_ray_ev and not CC.enabled:
+        if self.is_ray_ev and not CC.enabled and not self._ray_ev_cancel_pressed_while_enabled:
           self._lat_enabled = True
+          self._pause_auto_speed_up = True
           self._activate_cruise = 2
           self._cruise_ready = False
           self._cruise_cancel_state = False
@@ -605,12 +612,14 @@ class VCruiseCarrot:
             self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
           self._cruise_cancel_state = True
           #self._v_cruise_kph_at_brake = 0
+        self._ray_ev_cancel_pressed_while_enabled = False
       elif button_type == ButtonType.mainCruise:
         if CC.enabled:
           self._cruise_control(-1, -1, "Cruise off (mainCruise)")
           self._cruise_ready = True
         else:
           self._lat_enabled = True
+          self._pause_auto_speed_up = True
           self._activate_cruise = 2 if self.is_ray_ev else 1
           self._cruise_ready = False
           v_cruise_kph = max(self.v_ego_kph_set, self._cruise_speed_min)
