@@ -650,6 +650,19 @@ class CarController(CarControllerBase):
       self.ray_ev_pause_resume_frame = self.frame
     if is_ray_ev and physical_button_edge and physical_button in (Buttons.RES_ACCEL, Buttons.SET_DECEL):
       self.ray_ev_speed_sync_block_frame = self.frame
+    if is_ray_ev and (physical_button == Buttons.CANCEL or CS.out.activateCruise < 0):
+      # A queued activation retry must not race a driver/automatic cancel while
+      # the old enabled control message is still in flight.
+      self.ray_ev_activate_retry = 0
+      self.activateCruise = 0
+      self.button_spamming_count = 0
+      if physical_button == Buttons.CANCEL:
+        self.last_button_frame = self.frame
+        self.button_wait = self.button_spam2
+        return 0
+      if CC.enabled:
+        return 0
+      # Once controls are disabled, retain the stock-cruise pause path below.
     if is_ray_ev and not CC.enabled:
       self.ray_ev_activate_retry = 0
       if ray_ev_cruise_state is not True:
@@ -690,6 +703,12 @@ class CarController(CarControllerBase):
       self.activateCruise = 0
       if ray_ev_cruise_active:
         button_target = self._ray_ev_speed_tracking_target(target, current, v_ego_kph, hud_control)
+
+    # A speed estimate seeded from road speed is not the stock setpoint. After
+    # pause/resume the stock controller can retain a higher setpoint, so matching
+    # against that estimate would repeatedly send RES and raise the cluster
+    # setting. Only adjust a Ray setpoint when feedback actually provides it.
+    speed_matching_allowed = not is_ray_ev or not ray_ev_using_estimate
 
     send_button = 0
     activate_cruise = False
@@ -748,11 +767,11 @@ class CarController(CarControllerBase):
           self.activateCruise = 1
       elif CC.cruiseControl.resume and not is_ray_ev:
         send_button = resume_button
-      elif not ray_ev_speed_sync_blocked and button_target < current and current>= 31 and self.speed_from_pcm != 1:
+      elif speed_matching_allowed and not ray_ev_speed_sync_blocked and button_target < current and current>= 31 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         send_button = Buttons.SET_DECEL
-      elif not ray_ev_speed_sync_blocked and button_target > current and current < 160 and self.speed_from_pcm != 1:
+      elif speed_matching_allowed and not ray_ev_speed_sync_blocked and button_target > current and current < 160 and self.speed_from_pcm != 1:
         if is_ray_ev:
           self.activateCruise = 0
         lead_blocking = (

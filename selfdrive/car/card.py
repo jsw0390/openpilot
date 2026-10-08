@@ -99,7 +99,11 @@ class Car:
         with car.CarParams.from_bytes(cached_params_raw) as _cached_params:
           cached_params = _cached_params
 
-      self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params)
+      # A manually selected Ray can record CAN passively without VIN/FW probes.
+      # Keep normal vehicle identification whenever controls are enabled.
+      query_fw = self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
+      self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params,
+                        query_fw=query_fw)
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
@@ -111,7 +115,9 @@ class Car:
 
     self.CP.alternativeExperience = 0
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
-    controller_available = self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly
+    # If the toggle changes during receive-only identification, stay passive
+    # until a restart performs normal identification for active controls.
+    controller_available = self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly and (CI is not None or query_fw)
     self.CP.passive = not controller_available or self.CP.dashcamOnly
     if self.CP.passive:
       safety_config = structs.CarParams.SafetyConfig()
@@ -147,6 +153,10 @@ class Car:
     # Write CarParams for controls and radard
     cp_bytes = self.CP.to_bytes()
     self.params.put("CarParams", cp_bytes)
+    if self.CP.passive:
+      # Passive mode never calls controls_update/CI.init. Let pandad leave
+      # fingerprinting mode only after its noOutput configuration is stored.
+      self.params.put_bool("ControlsReady", True)
     self.params.put_nonblocking("CarParamsCache", cp_bytes)
     self.params.put_nonblocking("CarParamsPersistent", cp_bytes)
 

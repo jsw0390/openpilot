@@ -191,6 +191,9 @@ class VCruiseCarrot:
     self._v_cruise_kph_at_brake = 0
     self.cruise_state_available_last = False
     self._ray_ev_cancel_pressed_while_enabled = False
+    self._ray_ev_cancel_pressed = False
+    self._ray_ev_cancel_long_pressed = False
+    self._ray_ev_main_pressed_while_enabled = False
 
     self._paddle_decel_active = False
     self.carrot_cruise_active = False
@@ -515,10 +518,31 @@ class VCruiseCarrot:
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:
       for b in CS.buttonEvents:
-        if b.type == ButtonType.cancel and b.pressed:
-          self._ray_ev_cancel_pressed_while_enabled = CC.enabled
+        if b.type == ButtonType.cancel:
+          self._ray_ev_cancel_pressed = b.pressed
+          if b.pressed:
+            self._ray_ev_cancel_pressed_while_enabled = CC.enabled
+            self._ray_ev_cancel_long_pressed = False
+        elif b.type == ButtonType.mainCruise and b.pressed:
+          self._ray_ev_main_pressed_while_enabled = CC.enabled
 
     button_kph, button_type, long_pressed = self._prepare_buttons(CS, v_cruise_kph)
+
+    if self.is_ray_ev and self._ray_ev_cancel_pressed:
+      # Driver cancel takes priority from the press edge through the hold.
+      # Do not let an automatic or remote enable request replace it.
+      self._ray_ev_cancel_long_pressed |= long_pressed
+      if self._ray_ev_cancel_long_pressed:
+        self._lat_enabled = False
+      self._activate_cruise = -1
+      self._cruise_cancel_state = True
+      self._cruise_ready = False
+      self._paddle_decel_active = False
+      self.carrot_cruise_active = False
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      return v_cruise_kph
 
     v_cruise_kph, button_type, long_pressed = self._carrot_command(v_cruise_kph, button_type, long_pressed)
 
@@ -608,7 +632,7 @@ class VCruiseCarrot:
         print("lfaButton")
       elif button_type == ButtonType.cancel:
         self._paddle_decel_active = False
-        if self.is_ray_ev and not CC.enabled and not self._ray_ev_cancel_pressed_while_enabled:
+        if self.is_ray_ev and not CC.enabled and not self._ray_ev_cancel_pressed_while_enabled and not self._ray_ev_cancel_long_pressed:
           self._lat_enabled = True
           self._pause_auto_speed_up = True
           self._activate_cruise = 2
@@ -621,13 +645,37 @@ class VCruiseCarrot:
             self._lat_enabled = False
             self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
           self._cruise_cancel_state = True
+          if self.is_ray_ev:
+            self._activate_cruise = -1
+            self._cruise_ready = False
           #self._v_cruise_kph_at_brake = 0
         self._ray_ev_cancel_pressed_while_enabled = False
+        self._ray_ev_cancel_long_pressed = False
       elif button_type == ButtonType.mainCruise:
-        if CC.enabled:
+        # An automatic pause during the press must not turn an OFF request into
+        # an ON request when the driver releases the switch.
+        ray_main_was_enabled = self.is_ray_ev and self._ray_ev_main_pressed_while_enabled
+        if self.is_ray_ev:
+          self._ray_ev_main_pressed_while_enabled = False
+        if CC.enabled or ray_main_was_enabled:
+          if self.is_ray_ev:
+            # Driver OFF must bypass auto-cruise gates and take priority over
+            # automatic pause/resume requests, including delayed CC feedback.
+            self._activate_cruise = -1
+            self._cruise_cancel_state = True
+            self._cruise_ready = False
+            self._paddle_decel_active = False
+            self.carrot_cruise_active = False
+            self._ray_ipedal_active = False
+            self._ray_ipedal_timer = 0
+            self._ray_ipedal_cancel_repeat = 0
+            self._add_log("Cruise off (mainCruise)")
+            return v_cruise_kph
           self._cruise_control(-1, -1, "Cruise off (mainCruise)")
           self._cruise_ready = True
         else:
+          if self.is_ray_ev:
+            self._cruise_cancel_state = False
           self._lat_enabled = True
           self._pause_auto_speed_up = True
           self._activate_cruise = 2 if self.is_ray_ev else 1
@@ -777,7 +825,7 @@ class VCruiseCarrot:
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
     ray_ipedal_enabled = self._ray_ipedal_enabled()
     ray_curve_pause_enabled = self._ray_curve_cruise_pause_enabled()
-    if not ray_ipedal_enabled and not ray_curve_pause_enabled:
+    if self._cruise_cancel_state or (not ray_ipedal_enabled and not ray_curve_pause_enabled):
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
       self._ray_ipedal_cancel_repeat = 0
@@ -805,12 +853,36 @@ class VCruiseCarrot:
     curve_source = desired_allowed and self.desiredSource in RAY_CURVE_SOURCES
     lead_decel = self.rayVisionIPedalAssist >= 2 and lead_target_kph is not None
     trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
-    resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
     curve_trigger_delta = max(3.0, trigger_delta - 3.0)
+    lead_trigger_delta = 3.0
+    # Restrict resumption, rather than delaying a needed pause, when the
+    # configured resume margin overlaps any enabled pause threshold.
+    pause_thresholds = []
+    if ray_ipedal_enabled:
+      pause_thresholds.append(trigger_delta)
+    if ray_curve_pause_enabled:
+      pause_thresholds.append(curve_trigger_delta)
+    if self.rayVisionIPedalAssist >= 2:
+      pause_thresholds.append(lead_trigger_delta)
+    resume_margin = min(max(1.0, float(self.rayVisionIPedalResumeMargin)), min(pause_thresholds) - 1.0)
     need_curve_pause = ray_curve_pause_enabled and curve_source and speed_delta >= curve_trigger_delta
     need_speed_decel = ray_ipedal_enabled and speed_delta >= trigger_delta
-    need_decel = need_speed_decel or need_curve_pause or lead_decel
+    need_lead_decel = lead_decel and speed_delta >= lead_trigger_delta
+    need_decel = need_speed_decel or need_curve_pause or need_lead_decel
     ray_cruise_active = CS.cruiseState.enabled or (self.is_ray_ev and CC.enabled)
+
+    # Without the retained stock setpoint, automatic resumption can accelerate
+    # back into the same overspeed pause. Require a fresh driver request after
+    # this pause (or loss of feedback during a pause), rather than cycling.
+    stock_setpoint_known = 30 <= CS.cruiseState.speed * 3.6 <= 160
+    if not stock_setpoint_known and (self._ray_ipedal_active or (need_decel and ray_cruise_active)):
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      self._cruise_cancel_state = True
+      self._cruise_ready = False
+      self._ray_ipedal_set_cruise(-1, "Ray stock set speed unavailable: driver resume required")
+      return v_cruise_kph
 
     if not self._ray_ipedal_active:
       if need_decel and ray_cruise_active:
@@ -826,7 +898,7 @@ class VCruiseCarrot:
 
     min_off_frames = int(1.2 / 0.01)
     max_off_frames = int(8.0 / 0.01)
-    ready_to_resume = speed_delta <= resume_margin or (self._ray_ipedal_timer >= max_off_frames and speed_delta < trigger_delta and not lead_decel)
+    ready_to_resume = speed_delta <= resume_margin or (self._ray_ipedal_timer >= max_off_frames and not need_decel)
     if not ready_to_resume and self._activate_cruise > 0:
       self._activate_cruise = 0
 

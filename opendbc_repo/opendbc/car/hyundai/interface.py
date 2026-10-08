@@ -149,47 +149,8 @@ class CarInterface(CarInterfaceBase):
         ret.safetyConfigs[0].safetyParam |= HyundaiSafetyFlags.CAMERA_SCC.value
         print("$$$CAMERA_SCC")
 
-    # Common lateral control setup
-    
-    # Kia Ray EV - Auto-apply optimized default settings
-    if candidate == CAR.KIA_RAY_EV:
-      print("$$$ Kia Ray EV detected - Applying optimized settings...")
-      params.put_int("PathOffset", 0)          # Keep centered in lane mode
-      params.put_int("UseLaneLineSpeed", 20)   # Lane line mode speed
-      params.put_int("UseLaneLineCurveSpeed", 50) # Lane line mode curve speed
-      params.put_int("LatSmoothSec", 18)      # Steering smoothing
-      params.put_int("SteerActuatorDelay", 20) # Steering delay
-      params.put_int("LatMpcJerkCost", 10)     # Curvature change limit
-      params.put_int("LatMpcMotionCost", 20)   # Motion cost
-      params.put_int("LatMpcPathCost", 230)    # Path cost
-      params.put_int("LatMpcInputOffset", 4)   # Input offset
-      # Lateral torque tuning
-      params.put_int("LateralTorqueAccelFactor", 2500) # Lateral accel factor
-      params.put_int("LateralTorqueFriction", 70)      # Friction compensation
-      params.put_int("LateralTorqueKpV", 85)   # Proportional gain
-      params.put_int("LateralTorqueKiV", 8)    # Integral gain
-      params.put_int("LateralTorqueKd", 20)    # Derivative gain
-      params.put_int("LateralTorqueKf", 85)    # Feed-forward gain
-      params.put_int("LateralTorqueCustom", 1) # Enable custom torque
-      params.put_int("CustomSteerMax", 400)    # Max steering torque command
-      params.put_int("CustomSR", 0)            # Use live steer ratio
-      params.put_int("SteerRatioRate", 100)    # Live steer ratio scale
-      params.put_int("AutoEngage", 2)          # Steering ON + cruise standby
-      # Vision cruise: conservative camera-only lead following with road-limit target.
-      params.put_int("RayVisionCruiseControl", 2)
-      params.put_int("RayVisionCruiseRoadOffset", 5)
-      params.put_int("RayVisionCruiseLeadProb", 85)
-      params.put_int("RayVisionCruiseTFollowAdd", 35)
-      params.put_int("RayVisionCruiseAccelFactor", 80)
-      params.put_int("RayVisionIPedalAssist", 2)
-      params.put_int("RayVisionIPedalSpeedDelta", 7)
-      params.put_int("RayVisionIPedalResumeMargin", 2)
-      params.put_int("TurnSpeedControlMode", 1)
-      params.put_int("AutoCurveSpeedFactor", 120)
-      params.put_int("AutoCurveSpeedAggressiveness", 90)
-      params.put_int("AutoCurveSpeedLowerLimit", 45)
-      print("$$$ Default settings applied to Kia Ray EV")
-
+    # Common lateral control setup. Vehicle identification must preserve saved
+    # preferences, including explicit OFF values. Manager initializes defaults.
     ret.centerToFront = ret.wheelbase * 0.4
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4

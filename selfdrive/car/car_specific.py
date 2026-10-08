@@ -234,13 +234,17 @@ class CarSpecificEvents:
       events.add(EventName.buttonEnable)
 
     # Handle cancel button presses
+    is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
+    ray_cancel_pressed = is_ray_ev and any(b.type == ButtonType.cancel and b.pressed for b in CS.buttonEvents)
     for b in CS.buttonEvents:
       # Disable on rising and falling edge of cancel for both stock and OP long
       # TODO: only check the cancel button with openpilot longitudinal on all brands to match panda safety
-      ray_ev_pause_resume_enable = str(self.CP.carFingerprint) == "KIA_RAY_EV" and CS.activateCruise > 0
+      ray_ev_pause_resume_enable = is_ray_ev and not b.pressed and CS.activateCruise > 0
       if b.type == ButtonType.cancel and not ray_ev_pause_resume_enable and (allow_button_cancel or not self.CP.pcmCruise):
         events.add(EventName.buttonCancel)
-        if CS.gearShifter == GearShifter.park and not self.do_shutdown:
+        # Ray uses this switch for pause/resume; its press must not power off
+        # the device before the release can be processed.
+        if not is_ray_ev and CS.gearShifter == GearShifter.park and not self.do_shutdown:
           self.do_shutdown = True
           self.params.put_bool("DoShutdown", True)
 
@@ -277,7 +281,7 @@ class CarSpecificEvents:
     if not self.CP.pcmCruise:
       if CS.activateCruise > 0 and CS_prev.activateCruise <= 0:
         is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
-        if not events.contains(ET.NO_ENTRY) and (not is_ray_ev or CS.activateCruise == 2):
+        if not ray_cancel_pressed and not events.contains(ET.NO_ENTRY) and (not is_ray_ev or CS.activateCruise == 2):
           events.add(EventName.buttonEnable)
       elif CS.activateCruise < 0 and CS_prev.activateCruise >= 0:
         events.add(EventName.buttonCancel)
