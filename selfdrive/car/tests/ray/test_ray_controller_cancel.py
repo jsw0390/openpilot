@@ -13,6 +13,7 @@ methods = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in n
 Buttons = NS(NONE=0, RES_ACCEL=1, SET_DECEL=2, CANCEL=4)
 env = {
   'Buttons': Buttons,
+  'ButtonType': NS(mainCruise='mainCruise', cancel='cancel', accelCruise='accelCruise', decelCruise='decelCruise'),
   'CAR': NS(KIA_RAY_EV='KIA_RAY_EV'),
   'CV': NS(MS_TO_KPH=3.6, MS_TO_MPH=2.23694),
   'RAY_EV_ACTIVATE_BUTTON': 4,
@@ -58,7 +59,7 @@ class TestRayControllerCancel:
     self.cs = NS(
       is_metric=True,
       cruise_buttons=[0],
-      out=NS(vEgo=32 / 3.6, gearStep=0, activateCruise=0, brakePressed=False, gasPressed=False, cruiseState=NS(speed=0.0, enabled=False)),
+      out=NS(vEgo=32 / 3.6, gearStep=0, activateCruise=0, brakePressed=False, gasPressed=False, buttonEvents=[], cruiseState=NS(speed=0.0, enabled=False)),
     )
 
   def test_physical_cancel_blocks_pending_retry_with_old_enabled_feedback(self):

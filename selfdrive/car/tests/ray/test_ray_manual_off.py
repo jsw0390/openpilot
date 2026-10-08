@@ -63,6 +63,8 @@ class Fixture:
       _ray_ev_cancel_pressed=False,
       _ray_ev_cancel_long_pressed=False,
       _ray_ev_main_pressed_while_enabled=False,
+      _ray_ev_main_on=True,
+      _lfa_button_mode=0,
       _cancel_button_mode=0,
       _soft_hold_active=0,
       _gas_tok=False,

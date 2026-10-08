@@ -11,6 +11,7 @@ from opendbc.car.vehicle_model import VehicleModel
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
+ButtonType = structs.CarState.ButtonEvent.Type
 
 
 from openpilot.common.params import Params
@@ -646,7 +647,12 @@ class CarController(CarControllerBase):
     physical_button = CS.cruise_buttons[-1] if len(CS.cruise_buttons) else Buttons.NONE
     physical_button_edge = physical_button != self.ray_ev_prev_cruise_button and physical_button != Buttons.NONE
     self.ray_ev_prev_cruise_button = physical_button
-    if is_ray_ev and physical_button_edge and physical_button == Buttons.CANCEL:
+    if is_ray_ev and (physical_button in (Buttons.CANCEL, Buttons.RES_ACCEL, Buttons.SET_DECEL) or
+                      any(b.type in (ButtonType.mainCruise, ButtonType.cancel, ButtonType.accelCruise, ButtonType.decelCruise)
+                          for b in CS.out.buttonEvents)):
+      # These switches act directly on the stock controller. Observe its
+      # response instead of echoing a second pause/resume toggle. Include the
+      # release edge so a held switch cannot outlast this suppression window.
       self.ray_ev_pause_resume_frame = self.frame
     if is_ray_ev and physical_button_edge and physical_button in (Buttons.RES_ACCEL, Buttons.SET_DECEL):
       self.ray_ev_speed_sync_block_frame = self.frame

@@ -17,6 +17,7 @@ if sys.platform != 'linux':
   pytest.skip('Requires the comma device native runtime', allow_module_level=True)
 
 from cereal import car, log
+from opendbc.car.interfaces import CarStateBase
 from openpilot.selfdrive.selfdrived.events import EventName, ET
 from openpilot.selfdrive.selfdrived.state import StateMachine
 import openpilot.selfdrive.selfdrived.selfdrived as selfdrived_source
@@ -95,6 +96,7 @@ class NativeHarness:
   def __init__(self, enabled=True, gear='drive'):
     cp = car.CarParams.new_message(carFingerprint='KIA_RAY_EV', brand='hyundai', openpilotLongitudinalControl=True, pcmCruise=False)
     self.h = cruise.VCruiseCarrot(cp)
+    self.h._ray_ev_main_on = enabled
     self.h.v_cruise_kph = 31.0
     self.h.cruise_state_available_last = True
     self.events = common.CarSpecificEvents(cp)
@@ -113,6 +115,9 @@ class NativeHarness:
     class Inputs(dict):
       alive = dict.fromkeys(['carrotMan', 'longitudinalPlan', 'radarState', 'drivingModelData'], False)
 
+    # Include the generic interface's RES/SET edge, which previously bypassed
+    # the Ray-specific activation check in CarSpecificEvents.
+    self.cs.buttonEnable = CarStateBase.update_button_enable(NS(CP=self.h.CP), self.cs.buttonEvents)
     self.h.update_v_cruise(self.cs, Inputs(carControl=self.cc), True)
     self.cs.activateCruise = self.h._activate_cruise
     self.cs.vCruise = float(self.h.v_cruise_kph)
@@ -127,6 +132,53 @@ class NativeHarness:
 
 
 class TestNativeRaySequence:
+  @pytest.mark.parametrize('button', ['accelCruise', 'decelCruise', 'cancel'])
+  def test_cold_start_cannot_enable_without_main(self, button):
+    h = NativeHarness(False)
+    h.tick(button, True)
+    for _ in range(10):
+      h.tick()
+    enabled, _, events, request = h.tick(button, False)
+    assert not enabled
+    assert request <= 0
+    assert not events.contains(ET.ENABLE)
+
+  @pytest.mark.parametrize('button,expected', [('cancel', 40.0), ('accelCruise', 32.0), ('decelCruise', 32.0)])
+  @pytest.mark.parametrize('pause', ['brake', 'cancel'])
+  def test_main_pause_and_stock_resume_speed(self, button, expected, pause):
+    h = NativeHarness(False)
+    h.cs.vEgo = h.cs.vEgoCluster = 40 / 3.6
+    h.cs.cruiseState.speed = 40 / 3.6
+    h.tick('mainCruise', True)
+    assert h.tick('mainCruise', False)[0]
+    assert h.h.v_cruise_kph == 40.0
+    if pause == 'brake':
+      h.cs.brakePressed = True
+      assert not h.tick()[0]
+      h.cs.brakePressed = False
+    else:
+      assert not h.tick('cancel', True)[0]
+      assert not h.tick('cancel', False)[0]
+    h.cs.vEgo = h.cs.vEgoCluster = 32 / 3.6
+    for _ in range(100):
+      assert not h.tick()[0]
+      assert h.h.v_cruise_kph == 40.0
+    h.tick(button, True)
+    assert h.tick(button, False)[0]
+    assert h.h.v_cruise_kph == expected
+
+  def test_first_lfa_press_after_availability_does_not_enable_cruise(self):
+    h = NativeHarness(False)
+    h.h.cruise_state_available_last = False
+    h.tick()
+    assert not h.h._lat_enabled
+    h.tick('lfaButton', True)
+    enabled, _, events, request = h.tick('lfaButton', False)
+    assert h.h._lat_enabled
+    assert not enabled
+    assert request == 0
+    assert not events.contains(ET.ENABLE)
+
   def test_missing_stock_setpoint_pause_disables_until_explicit_driver_resume(self):
     h = NativeHarness()
     h.h.v_cruise_kph = 40.0

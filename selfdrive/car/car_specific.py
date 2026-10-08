@@ -230,11 +230,13 @@ class CarSpecificEvents:
       events.add(EventName.invalidLkasSetting)
     if CS.lowSpeedAlert:
       events.add(EventName.belowSteerSpeed)
-    if CS.buttonEnable:
+    is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
+    # The generic interface treats every RES/SET release as engagement. Ray
+    # requires MAIN first; only its cruise helper may request engagement.
+    if CS.buttonEnable and not (is_ray_ev and not self.CP.pcmCruise):
       events.add(EventName.buttonEnable)
 
     # Handle cancel button presses
-    is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
     ray_cancel_pressed = is_ray_ev and any(b.type == ButtonType.cancel and b.pressed for b in CS.buttonEvents)
     for b in CS.buttonEvents:
       # Disable on rising and falling edge of cancel for both stock and OP long
