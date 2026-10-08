@@ -120,6 +120,7 @@ class NativeHarness:
     self.cs.buttonEnable = CarStateBase.update_button_enable(NS(CP=self.h.CP), self.cs.buttonEvents)
     self.h.update_v_cruise(self.cs, Inputs(carControl=self.cc), True)
     self.cs.activateCruise = self.h._activate_cruise
+    self.cs.latEnabled = self.h._lat_enabled
     self.cs.vCruise = float(self.h.v_cruise_kph)
     events = self.events.update(self.cs, self.prev, self.cc)
     scope = {'CS': self.cs, 'self': NS(CS_prev=self.prev, disengage_on_accelerator=True, events=events), 'EventName': EventName}

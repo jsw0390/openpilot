@@ -811,6 +811,10 @@ struct SelfdriveState {
   personality @11 :LongitudinalPersonality;
   distanceTraveled @13 :Float32;
 
+  # Independent lateral engagement. enabled/active above remain cruise state.
+  lateralEnabled @14 :Bool;
+  lateralActive @15 :Bool;
+
   enum OpenpilotState @0xdbe58b96d2d1ac61 {
     disabled @0;
     preEnabled @1;

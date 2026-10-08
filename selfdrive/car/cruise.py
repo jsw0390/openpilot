@@ -197,6 +197,7 @@ class VCruiseCarrot:
     # A resume/set input must never substitute for the driver's MAIN switch.
     # Keep this across a brake/cancel pause, but never across process restarts.
     self._ray_ev_main_on = False
+    self._ray_ev_lfa_pressed = False
 
     self._paddle_decel_active = False
     self.carrot_cruise_active = False
@@ -407,7 +408,9 @@ class VCruiseCarrot:
   def _prepare_buttons(self, CS, v_cruise_kph):
     button_kph = v_cruise_kph
     button_type = 0
-    buttonEvents = CS.buttonEvents
+    # Ray steering has its own switch latch, independent of cruise hold/release
+    # tracking and the configurable LFA long-press shortcuts used by other cars.
+    buttonEvents = [b for b in CS.buttonEvents if not (self.is_ray_ev and b.type == ButtonType.lfaButton)]
 
     SPEED_UP_UNIT = 1 if self.is_ray_ev else self._cruise_speed_unit_basic
     SPEED_DOWN_UNIT = self._cruise_speed_unit if self._cruise_button_mode in [1, 2, 3] else self._cruise_speed_unit_basic
@@ -526,7 +529,12 @@ class VCruiseCarrot:
         self._cruise_cancel_state = True
         self._cruise_ready = False
       for b in CS.buttonEvents:
-        if b.type == ButtonType.cancel:
+        if b.type == ButtonType.lfaButton:
+          if b.pressed and not self._ray_ev_lfa_pressed:
+            self._lat_enabled = not self._lat_enabled
+            self._add_log("Lateral " + ("selected" if self._lat_enabled else "off"))
+          self._ray_ev_lfa_pressed = b.pressed
+        elif b.type == ButtonType.cancel:
           self._ray_ev_cancel_pressed = b.pressed
           if b.pressed:
             self._ray_ev_cancel_pressed_while_enabled = CC.enabled
@@ -540,8 +548,6 @@ class VCruiseCarrot:
       # Driver cancel takes priority from the press edge through the hold.
       # Do not let an automatic or remote enable request replace it.
       self._ray_ev_cancel_long_pressed |= long_pressed
-      if self._ray_ev_cancel_long_pressed:
-        self._lat_enabled = False
       self._activate_cruise = -1
       self._cruise_cancel_state = True
       self._cruise_ready = False
@@ -664,7 +670,6 @@ class VCruiseCarrot:
         if (self.is_ray_ev and self._ray_ev_main_on and not CC.enabled and
             not CS.brakePressed and not CS.gasPressed and CS.gearShifter == GearShifter.drive and
             not self._ray_ev_cancel_pressed_while_enabled and not self._ray_ev_cancel_long_pressed):
-          self._lat_enabled = True
           self._pause_auto_speed_up = True
           self._activate_cruise = 2
           self._cruise_ready = False
@@ -672,7 +677,7 @@ class VCruiseCarrot:
           v_cruise_kph = self._ray_ev_resume_speed(v_cruise_kph)
           self._add_log("Cruise on (pauseResume)")
         else:
-          if self._cancel_button_mode in [1]:
+          if not self.is_ray_ev and self._cancel_button_mode in [1]:
             self._lat_enabled = False
             self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
           self._cruise_cancel_state = True
@@ -711,7 +716,8 @@ class VCruiseCarrot:
               return v_cruise_kph
             self._ray_ev_main_on = True
             self._cruise_cancel_state = False
-          self._lat_enabled = True
+          if not self.is_ray_ev:
+            self._lat_enabled = True
           self._pause_auto_speed_up = True
           self._activate_cruise = 2 if self.is_ray_ev else 1
           self._cruise_ready = False
@@ -733,7 +739,8 @@ class VCruiseCarrot:
 
       elif button_type == ButtonType.cancel:
         self._cruise_cancel_state = True
-        self._lat_enabled = False
+        if not self.is_ray_ev:
+          self._lat_enabled = False
         self._paddle_decel_active = False
         #self.params.put_bool_nonblocking("ExperimentalMode", not self.params.get_bool("ExperimentalMode"))
         self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
