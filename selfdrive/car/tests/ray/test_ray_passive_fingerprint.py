@@ -83,7 +83,8 @@ class TestRayPassiveFingerprint:
     assignments = {ast.unparse(n.targets[0]): n for n in ast.walk(tree) if isinstance(n, ast.Assign) and len(n.targets) == 1}
     h = NS(params=NS(get_bool=lambda _: enabled, get=lambda _: selected), can_callbacks=('rx', 'tx'))
     factory = Mock()
-    scope = dict(self=h, get_car=factory, obd_callback=lambda _: 'mux', alpha_long_allowed=True, is_release=True, num_pandas=1, cached_params=None)
+    scope = dict(self=h, get_car=factory, obd_callback=lambda _: 'mux', alpha_long_allowed=True,
+                 is_release=True, num_pandas=1, cached_params=None, ray_camera_diagnostics=False)
     exec(compile_nodes([assignments['query_fw'], assignments['self.CI']], CARD), scope)
     return factory.call_args.kwargs['query_fw']
 

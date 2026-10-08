@@ -234,6 +234,10 @@ class CarInterface(CarInterfaceBase):
   def init(CP, can_recv, can_send):
 
     Params().put_int('LongitudinalPersonalityMax', 4)
+    if CP.carFingerprint == CAR.KIA_RAY_EV:
+      # Keep stock cruise/vehicle ECUs operational for button-only assistance.
+      # Do not disable an ECU or enable radar tracks on this camera-only car.
+      return
 
     if CP.openpilotLongitudinalControl and not (CP.flags & HyundaiFlags.CANFD_CAMERA_SCC):
       addr, bus = 0x7d0, 0

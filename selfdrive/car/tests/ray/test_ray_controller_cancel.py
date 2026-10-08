@@ -8,11 +8,12 @@ ROOT = Path(__file__).resolve().parents[4]
 path = ROOT / 'opendbc_repo/opendbc/car/hyundai/carcontroller.py'
 tree = ast.parse(path.read_text())
 cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CarController')
-names = {'make_spam_button', '_ray_ev_cruise_state_from_gear', '_ray_ev_speed_tracking_target'}
+names = {'make_spam_button', '_ray_ev_cruise_state_from_gear', '_ray_ev_stock_cruise_button'}
 methods = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in names]
 Buttons = NS(NONE=0, RES_ACCEL=1, SET_DECEL=2, CANCEL=4)
 env = {
   'Buttons': Buttons,
+  'GearShifter': NS(drive='drive'),
   'ButtonType': NS(mainCruise='mainCruise', cancel='cancel', accelCruise='accelCruise', decelCruise='decelCruise'),
   'CAR': NS(KIA_RAY_EV='KIA_RAY_EV'),
   'CV': NS(MS_TO_KPH=3.6, MS_TO_MPH=2.23694),
@@ -40,6 +41,9 @@ class TestRayControllerCancel:
       CP=NS(carFingerprint='KIA_RAY_EV'),
       frame=100,
       ray_ev_prev_cruise_button=0,
+      ray_ev_request_prev=0,
+      ray_ev_pending_resume_until=-1,
+      ray_ev_pause_sent=False,
       ray_ev_pause_resume_frame=-100,
       ray_ev_speed_sync_block_frame=-100,
       ray_ev_activate_retry=12,
@@ -59,7 +63,8 @@ class TestRayControllerCancel:
     self.cs = NS(
       is_metric=True,
       cruise_buttons=[0],
-      out=NS(vEgo=32 / 3.6, gearStep=0, activateCruise=0, brakePressed=False, gasPressed=False, buttonEvents=[], cruiseState=NS(speed=0.0, enabled=False)),
+      out=NS(gearShifter='drive', vEgo=32 / 3.6, gearStep=0, activateCruise=0, brakePressed=False, brakeHoldActive=False,
+             gasPressed=False, buttonEvents=[], cruiseState=NS(speed=0.0, enabled=False)),
     )
 
   def test_physical_cancel_blocks_pending_retry_with_old_enabled_feedback(self):

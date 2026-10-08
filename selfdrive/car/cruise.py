@@ -1,9 +1,10 @@
 import math
+import time
 import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
-from openpilot.selfdrive.carrot.ray_vision import RAY_CURVE_SOURCES, ray_desired_speed_allowed, ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -223,6 +224,8 @@ class VCruiseCarrot:
     self.v_lead_kph = 0
     self.lead_radar = False
     self.lead_prob = 0.0
+    self._ray_lead_data_valid = False
+    self._ray_lead_clear_frames = 0
     self.model_v_kph = 0
 
     self._log_timer = 0
@@ -331,6 +334,8 @@ class VCruiseCarrot:
       self.xState = lp.xState
       self.trafficState = lp.trafficState
       self.aTarget = lp.aTarget
+    self._ray_lead_data_valid = (sm.alive['radarState'] and sm.all_checks(['radarState']) and
+                                 0 <= time.monotonic() - sm.recv_time['radarState'] <= 0.25)
     if sm.alive['radarState']:
       lead = sm['radarState'].leadOne
       self.d_rel = lead.dRel if lead.status else 0
@@ -338,6 +343,8 @@ class VCruiseCarrot:
       self.v_lead_kph = lead.vLeadK * CV.MS_TO_KPH if lead.status else 0
       self.lead_radar = bool(lead.radar) if lead.status else False
       self.lead_prob = lead.modelProb if lead.status else 0.0
+      if lead.status:
+        self._ray_lead_data_valid &= self.d_rel > 0 and all(math.isfinite(v) for v in (self.d_rel, self.v_rel, self.v_lead_kph, self.lead_prob))
     if sm.alive['drivingModelData']:
       self.model_v_kph = sm['drivingModelData'].action.desiredVelocity * CV.MS_TO_KPH
 
@@ -853,10 +860,7 @@ class VCruiseCarrot:
       return False, d_final
 
   def _ray_ipedal_enabled(self):
-    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
-
-  def _ray_curve_cruise_pause_enabled(self):
-    return self.is_ray_ev and self.rayVisionCruiseControl > 0
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist >= 2
 
   def _ray_ipedal_set_cruise(self, enable, reason):
     self._activate_cruise = enable
@@ -867,97 +871,66 @@ class VCruiseCarrot:
     self._add_log(reason)
 
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    ray_ipedal_enabled = self._ray_ipedal_enabled()
-    ray_curve_pause_enabled = self._ray_curve_cruise_pause_enabled()
-    if (self.is_ray_ev and not self._ray_ev_main_on) or self._cruise_cancel_state or (not ray_ipedal_enabled and not ray_curve_pause_enabled):
+    # The stock controller owns the retained speed. This assistant only
+    # pauses for a credible lead; it never regulates ordinary speed/curves.
+    if (not self._ray_ipedal_enabled() or not self._ray_ev_main_on or self._cruise_cancel_state or
+        CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or self.v_ego_kph_set < 15):
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
+      self._ray_lead_clear_frames = 0
       return v_cruise_kph
 
-    v_ego_kph = self.v_ego_kph_set
-    target_kph = float(v_cruise_kph)
-    desired_allowed = ray_desired_speed_allowed(
-      self.desiredSource, self.desiredSpeed, v_cruise_kph, self.vTurnSpeed,
-      enabled=ray_ipedal_enabled or ray_curve_pause_enabled, disabled_result=False,
-    )
-    if desired_allowed and 0 < self.desiredSpeed < 200:
-      target_kph = min(target_kph, float(self.desiredSpeed))
-    lead_target_kph = self._ray_lead_target_kph(CS, target_kph)
-    if lead_target_kph is not None:
-      target_kph = min(target_kph, lead_target_kph)
-
-    if CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or v_ego_kph < 15:
+    if not self._ray_lead_data_valid:
+      if self._ray_ipedal_active:
+        self._cruise_cancel_state = True
+        self._ray_ipedal_set_cruise(-1, "Ray lead data unavailable: driver resume required")
       self._ray_ipedal_active = False
-      self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
+      self._ray_lead_clear_frames = 0
       return v_cruise_kph
 
-    speed_delta = v_ego_kph - target_kph
-    curve_source = desired_allowed and self.desiredSource in RAY_CURVE_SOURCES
-    lead_decel = self.rayVisionIPedalAssist >= 2 and lead_target_kph is not None
-    trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
-    curve_trigger_delta = max(3.0, trigger_delta - 3.0)
-    lead_trigger_delta = 3.0
-    # Restrict resumption, rather than delaying a needed pause, when the
-    # configured resume margin overlaps any enabled pause threshold.
-    pause_thresholds = []
-    if ray_ipedal_enabled:
-      pause_thresholds.append(trigger_delta)
-    if ray_curve_pause_enabled:
-      pause_thresholds.append(curve_trigger_delta)
-    if self.rayVisionIPedalAssist >= 2:
-      pause_thresholds.append(lead_trigger_delta)
-    resume_margin = min(max(1.0, float(self.rayVisionIPedalResumeMargin)), min(pause_thresholds) - 1.0)
-    need_curve_pause = ray_curve_pause_enabled and curve_source and speed_delta >= curve_trigger_delta
-    need_speed_decel = ray_ipedal_enabled and speed_delta >= trigger_delta
-    need_lead_decel = lead_decel and speed_delta >= lead_trigger_delta
-    need_decel = need_speed_decel or need_curve_pause or need_lead_decel
-    ray_cruise_active = CS.cruiseState.enabled or (self.is_ray_ev and CC.enabled)
+    target_kph = self._ray_lead_target_kph(CS, v_cruise_kph)
+    need_decel = target_kph is not None and self.v_ego_kph_set - target_kph >= 3.0
+    stock_kph = CS.cruiseState.speed * 3.6
+    stock_setpoint_known = 30 <= stock_kph <= min(160, v_cruise_kph + 1)
+    cruise_active = CS.cruiseState.enabled or CC.enabled
 
-    # Without the retained stock setpoint, automatic resumption can accelerate
-    # back into the same overspeed pause. Require a fresh driver request after
-    # this pause (or loss of feedback during a pause), rather than cycling.
-    stock_setpoint_known = 30 <= CS.cruiseState.speed * 3.6 <= 160
-    if not stock_setpoint_known and (self._ray_ipedal_active or (need_decel and ray_cruise_active)):
+    # An unknown or unexpectedly higher retained speed must never be restored
+    # automatically. A driver can still resume using the physical switch.
+    if not stock_setpoint_known and (self._ray_ipedal_active or (need_decel and cruise_active)):
       self._ray_ipedal_active = False
-      self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
+      self._ray_lead_clear_frames = 0
       self._cruise_cancel_state = True
-      self._cruise_ready = False
-      self._ray_ipedal_set_cruise(-1, "Ray stock set speed unavailable: driver resume required")
+      self._ray_ipedal_set_cruise(-1, "Ray stock set speed unavailable/mismatched: driver resume required")
       return v_cruise_kph
 
     if not self._ray_ipedal_active:
-      if need_decel and ray_cruise_active:
+      self._ray_lead_clear_frames = 0
+      if need_decel and cruise_active:
         self._ray_ipedal_active = True
         self._ray_ipedal_timer = 0
-        self._ray_ipedal_cancel_repeat = 0
-        pause_reason = "curve pause" if need_curve_pause else "i-Pedal decel"
-        self._ray_ipedal_set_cruise(-2, f"Ray {pause_reason} {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
+        self._ray_ipedal_set_cruise(-2, "Ray lead: pause stock cruise")
       return v_cruise_kph
 
     self._ray_ipedal_timer += 1
-    self._ray_ipedal_cancel_repeat = max(0, self._ray_ipedal_cancel_repeat - 1)
-
-    min_off_frames = int(1.2 / 0.01)
-    max_off_frames = int(8.0 / 0.01)
-    ready_to_resume = speed_delta <= resume_margin or (self._ray_ipedal_timer >= max_off_frames and not need_decel)
-    if not ready_to_resume and self._activate_cruise > 0:
-      self._activate_cruise = 0
-
-    if CC.enabled and CS.cruiseState.enabled:
-      if self._ray_ipedal_cancel_repeat <= 0:
-        self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal cancel {self.desiredSource}:{speed_delta:.0f}")
-        self._ray_ipedal_cancel_repeat = int(0.5 / 0.01)
-    elif ready_to_resume and self._ray_ipedal_timer >= min_off_frames:
+    # Evaluate the lead at the speed stock cruise would restore, not just the
+    # slower coasting speed. Otherwise a slow lead causes pause/resume cycling.
+    lead_clear = self.d_rel <= 0
+    if self.d_rel > 0 and (self.lead_radar or self.lead_prob >= self.rayVisionCruiseLeadProb):
+      resume_target = ray_lead_target_speed_kph(
+        stock_kph / 3.6, self.d_rel, (self.v_lead_kph - stock_kph) / 3.6,
+        self.v_lead_kph, stock_kph, self.rayVisionCruiseTFollowAdd,
+        lead_prob=self.lead_prob, lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb,
+      )
+      lead_clear = resume_target is None or resume_target >= stock_kph
+    self._ray_lead_clear_frames = self._ray_lead_clear_frames + 1 if lead_clear else 0
+    # Two seconds of fresh clear observations are required; a timeout alone
+    # never resumes. Driver pedals/OFF and missing feedback cancel this latch.
+    if self._ray_lead_clear_frames >= 200 and not cruise_active:
       self._ray_ipedal_active = False
-      self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
-      self._ray_ipedal_set_cruise(2, f"Ray i-Pedal resume {v_ego_kph:.0f}<={target_kph:.0f}")
-    else:
-      self._add_log(f"Ray i-Pedal active {v_ego_kph:.0f}>{target_kph:.0f}")
-
+      self._ray_lead_clear_frames = 0
+      self._ray_ipedal_set_cruise(2, "Ray lead clear: resume retained stock speed")
+    elif self._activate_cruise > 0:
+      self._activate_cruise = 0
     return v_cruise_kph
 
   def _ray_lead_target_kph(self, CS, cruise_kph):
@@ -974,9 +947,9 @@ class VCruiseCarrot:
     )
 
   def _update_cruise_state(self, CS, CC, v_cruise_kph):
-    if self.is_ray_ev and (not CC.enabled or CS.brakePressed):
-      # A manual pause retains the setpoint. Pedal release, navigation and
-      # road-speed changes must not rewrite it or engage cruise.
+    if self.is_ray_ev:
+      # Only physical cruise buttons change the Ray driver setpoint.
+      # Pedals, navigation and ordinary speed error belong to stock cruise.
       return v_cruise_kph
     if not CC.enabled:
       #self._pause_auto_speed_up = False

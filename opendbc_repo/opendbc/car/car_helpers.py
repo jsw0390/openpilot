@@ -85,7 +85,8 @@ def can_fingerprint(can_recv: CanRecvCallable) -> tuple[str | None, dict[int, di
 
 # **** for use live only ****
 def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback, num_pandas: int,
-                cached_params: CarParamsT | None, *, query_fw: bool = True) -> tuple[str | None, dict, str, list[CarParams.CarFw], CarParams.FingerprintSource, bool]:
+                cached_params: CarParamsT | None, *, query_fw: bool = True,
+                query_bus0_only: bool = False) -> tuple[str | None, dict, str, list[CarParams.CarFw], CarParams.FingerprintSource, bool]:
   fixed_fingerprint = os.environ.get('FINGERPRINT', "")
   skip_fw_query = not query_fw or os.environ.get('SKIP_FW_QUERY', False)
   disable_fw_cache = os.environ.get('DISABLE_FW_CACHE', False)
@@ -93,7 +94,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
 
   start_time = time.monotonic()
   if not skip_fw_query:
-    if cached_params is not None and cached_params.brand != "mock" and len(cached_params.carFw) > 0 and \
+    if not query_bus0_only and cached_params is not None and cached_params.brand != "mock" and len(cached_params.carFw) > 0 and \
        cached_params.carVin is not VIN_UNKNOWN and not disable_fw_cache:
       carlog.warning("Using cached CarParams")
       vin_rx_addr, vin_rx_bus, vin = -1, -1, cached_params.carVin
@@ -103,11 +104,12 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       carlog.warning("Getting VIN & FW versions")
       # enable OBD multiplexing for VIN query
       # NOTE: this takes ~0.1s and is relied on to allow sendcan subscriber to connect in time
-      set_obd_multiplexing(True)
+      set_obd_multiplexing(not query_bus0_only)
       # VIN query only reliably works through OBDII
-      vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0, 1))
-      ecu_rx_addrs = get_present_ecus(can_recv, can_send, set_obd_multiplexing, num_pandas=num_pandas)
-      car_fw = get_fw_versions_ordered(can_recv, can_send, set_obd_multiplexing, vin, ecu_rx_addrs, num_pandas=num_pandas)
+      vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0,) if query_bus0_only else (0, 1))
+      ecu_rx_addrs = get_present_ecus(can_recv, can_send, set_obd_multiplexing, num_pandas=num_pandas, query_bus0_only=query_bus0_only)
+      car_fw = get_fw_versions_ordered(can_recv, can_send, set_obd_multiplexing, vin, ecu_rx_addrs, num_pandas=num_pandas,
+                                       query_bus0_only=query_bus0_only)
       cached = False
 
     exact_fw_match, fw_candidates = match_fw_to_car(car_fw, vin)
@@ -152,8 +154,9 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
 
 
 def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback, alpha_long_allowed: bool,
-            is_release: bool, num_pandas: int = 1, cached_params: CarParamsT | None = None, *, query_fw: bool = True):
-  candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(can_recv, can_send, set_obd_multiplexing, num_pandas, cached_params, query_fw=query_fw)
+            is_release: bool, num_pandas: int = 1, cached_params: CarParamsT | None = None, *, query_fw: bool = True, query_bus0_only: bool = False):
+  candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(can_recv, can_send, set_obd_multiplexing, num_pandas, cached_params,
+                                                                      query_fw=query_fw, query_bus0_only=query_bus0_only)
 
   selected_car = Params().get("CarSelected3")
   if selected_car:

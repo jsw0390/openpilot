@@ -47,10 +47,10 @@ class TestRayUnknownSetpoint:
     b.cs.out.gearStep = 7
     assert (lower.Buttons.RES_ACCEL) not in (self.run_lower(b))
 
-  def test_measured_setpoint_can_still_track_up_and_down(self):
-    for current, expected in ((35, lower.Buttons.RES_ACCEL), (45, lower.Buttons.SET_DECEL)):
+  def test_measured_setpoint_stays_under_stock_control(self):
+    for current in (35, 45):
       b = self.lower_fixture(current)
-      assert (expected) in (self.run_lower(b))
+      assert set(self.run_lower(b)) == {0}
 
   def test_other_car_keeps_measured_speed_matching(self):
     b = self.lower_fixture(35, fingerprint='OTHER')
@@ -62,6 +62,7 @@ class TestRayUnknownSetpoint:
     h = b.helper
     b.cs.cruiseState.speed = 0.0
     b.cs.cruiseState.enabled = False
+    h.d_rel, h.v_rel, h.v_lead_kph, h.lead_prob = 10.0, -6.0, 20.0, 0.99
     h.v_ego_kph_set = 47.0
     b.cs.vEgo = 44.36 / 3.6
     h._update_ray_ipedal_assist(b.cs, b.cc, 40.0)

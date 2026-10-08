@@ -9,6 +9,7 @@ import contextlib
 import importlib.util
 import io
 import sys
+import time
 import pytest
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -114,11 +115,20 @@ class NativeHarness:
   def update(self):
     class Inputs(dict):
       alive = dict.fromkeys(['carrotMan', 'longitudinalPlan', 'radarState', 'drivingModelData'], False)
+      recv_time = {'radarState': time.monotonic()}
+
+      def all_checks(self, services):
+        return self.alive['radarState']
+
+    inputs = Inputs(carControl=self.cc)
+    if hasattr(self, 'lead'):
+      inputs.alive = dict(inputs.alive, radarState=True)
+      inputs['radarState'] = NS(leadOne=self.lead)
 
     # Include the generic interface's RES/SET edge, which previously bypassed
     # the Ray-specific activation check in CarSpecificEvents.
     self.cs.buttonEnable = CarStateBase.update_button_enable(NS(CP=self.h.CP), self.cs.buttonEvents)
-    self.h.update_v_cruise(self.cs, Inputs(carControl=self.cc), True)
+    self.h.update_v_cruise(self.cs, inputs, True)
     self.cs.activateCruise = self.h._activate_cruise
     self.cs.latEnabled = self.h._lat_enabled
     self.cs.vCruise = float(self.h.v_cruise_kph)
@@ -183,6 +193,7 @@ class TestNativeRaySequence:
   def test_missing_stock_setpoint_pause_disables_until_explicit_driver_resume(self):
     h = NativeHarness()
     h.h.v_cruise_kph = 40.0
+    h.lead = NS(status=True, dRel=10.0, vRel=-6.0, vLeadK=20 / 3.6, radar=False, modelProb=0.99)
     h.cs.cruiseState.speed = 0.0
     h.cs.vEgo = 44.36 / 3.6
     h.cs.vEgoCluster = 47.0 / 3.6

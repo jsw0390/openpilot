@@ -107,6 +107,7 @@ class TestRayPauseHysteresis:
     self.h.lead_prob = 0.9
     self.b.cs.vEgo = 50 / 3.6
     self.b.cs.cruiseState.enabled = True
+    self.b.cs.cruiseState.speed = 60 / 3.6
 
   def run_frames(self, count=1000, target=60.0):
     requests = []
@@ -126,23 +127,23 @@ class TestRayPauseHysteresis:
     self.h.v_lead_kph = 40.0
     assert (self.run_frames()) == ([(0, -2)])
 
-  def test_actual_slowdown_allows_one_resume_without_repause(self):
+  def test_slowdown_alone_never_resumes_into_a_slower_lead(self):
     self.h.v_lead_kph = 40.0
     assert (self.run_frames(121)) == ([(0, -2)])
     self.h.v_ego_kph_set = 46.0
     self.b.cs.vEgo = 46 / 3.6
-    assert (self.run_frames(1000)) == ([(0, 2)])
+    assert self.run_frames(1000) == []
 
-  def test_curve_pause_does_not_resume_only_because_eight_seconds_elapsed(self):
+  def test_curve_without_lead_does_not_pause_stock_cruise(self):
     self.h.d_rel = 0.0
     self.h.desiredSource = 'atc'
     self.h.desiredSpeed = 45.0
-    assert (self.run_frames(1200)) == ([(0, -2)])
+    assert self.run_frames(1200) == []
 
-  def test_large_resume_margin_does_not_overlap_entry_threshold(self):
+  def test_overspeed_without_lead_does_not_pause_stock_cruise(self):
     self.h.d_rel = 0.0
     self.h.rayVisionIPedalResumeMargin = 10
-    assert (self.run_frames(1200, target=42.0)) == ([(0, -2)])
+    assert self.run_frames(1200, target=42.0) == []
 
   def test_brake_gas_park_and_low_speed_clear_pending_resume(self):
     for signal in ('brake', 'gas', 'park', 'slow'):

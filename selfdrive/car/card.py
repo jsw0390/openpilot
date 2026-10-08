@@ -91,7 +91,13 @@ class Car:
           break
 
       alpha_long_allowed = self.params.get_bool("AlphaLongitudinalEnabled")
-      num_pandas = len(messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates)
+      panda_states = messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates
+      num_pandas = len(panda_states)
+      ray_camera_diagnostics = os.environ.get("RAY_CAMERA_DIAGNOSTICS") == "1"
+      if ray_camera_diagnostics:
+        if self.params.get("CarSelected3") != "Kia Ray EV" or num_pandas != 1 or str(panda_states[0].pandaType) != "cuatro":
+          raise RuntimeError("Camera diagnostics require a manually selected Ray EV and one comma four")
+        cloudlog.warning("Ray camera-only VIN/FW diagnostics: vehicle controls will remain disabled")
 
       cached_params = None
       cached_params_raw = self.params.get("CarParamsCache")
@@ -101,9 +107,9 @@ class Car:
 
       # A manually selected Ray can record CAN passively without VIN/FW probes.
       # Keep normal vehicle identification whenever controls are enabled.
-      query_fw = self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
+      query_fw = ray_camera_diagnostics or self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params,
-                        query_fw=query_fw)
+                        query_fw=query_fw, query_bus0_only=ray_camera_diagnostics)
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
@@ -112,12 +118,14 @@ class Car:
     else:
       self.CI, self.CP = CI, CI.CP
       self.RI = RI
+      ray_camera_diagnostics = False
 
     self.CP.alternativeExperience = 0
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
     # If the toggle changes during receive-only identification, stay passive
     # until a restart performs normal identification for active controls.
-    controller_available = self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly and (CI is not None or query_fw)
+    controller_available = (self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly and
+                            not ray_camera_diagnostics and (CI is not None or query_fw))
     self.CP.passive = not controller_available or self.CP.dashcamOnly
     if self.CP.passive:
       safety_config = structs.CarParams.SafetyConfig()

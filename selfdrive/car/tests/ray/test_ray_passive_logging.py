@@ -38,7 +38,7 @@ class Params:
 
 
 class TestRayPassiveLogging:
-  def initialize(self, enabled=True, controller=True, dashcam=False, injected=True, query_fw=True):
+  def initialize(self, enabled=True, controller=True, dashcam=False, injected=True, query_fw=True, camera_diagnostics=False):
     cp = NS(dashcamOnly=dashcam, safetyConfigs=[NS(safetyModel='hyundai')])
     cp.to_bytes = lambda: ('serialized', cp.passive, cp.safetyConfigs[0].safetyModel)
     h = NS(CP=cp, CI=NS(CC=object() if controller else None), params=Params(enabled))
@@ -46,6 +46,7 @@ class TestRayPassiveLogging:
       'self': h,
       'CI': object() if injected else None,
       'query_fw': query_fw,
+      'ray_camera_diagnostics': camera_diagnostics,
       'structs': NS(CarParams=NS(SafetyConfig=NS, SafetyModel=NS(noOutput='noOutput'))),
     }
     exec(code, scope)
@@ -83,6 +84,12 @@ class TestRayPassiveLogging:
     h = self.initialize(enabled=True, injected=False, query_fw=True)
     assert not (h.CP.passive)
 
+  def test_camera_diagnostics_force_nooutput_even_with_enabled_toggle(self):
+    h = self.initialize(enabled=True, injected=False, query_fw=True, camera_diagnostics=True)
+    assert h.CP.passive
+    assert h.CP.safetyConfigs[0].safetyModel == 'noOutput'
+    assert ('ControlsReady', True) in h.params.calls
+
   def test_failed_carparams_write_never_signals_ready(self):
     class BrokenParams(Params):
       def put(self, key, value):
@@ -91,7 +98,8 @@ class TestRayPassiveLogging:
     h = self.initialize(enabled=False)
     h.params = BrokenParams(False)
     with pytest.raises(OSError):
-      exec(code, {'self': h, 'CI': object(), 'structs': NS(CarParams=NS(SafetyConfig=NS, SafetyModel=NS(noOutput='noOutput')))})
+      exec(code, {'self': h, 'CI': object(), 'ray_camera_diagnostics': False,
+                   'structs': NS(CarParams=NS(SafetyConfig=NS, SafetyModel=NS(noOutput='noOutput')))})
     assert (h.params.calls) == ([])
 
   def test_passive_publishes_received_state_without_calling_controls(self):

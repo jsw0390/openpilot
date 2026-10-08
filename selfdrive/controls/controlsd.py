@@ -28,7 +28,7 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph
 
 from openpilot.selfdrive.carrot.carrot_controls import CarrotControls
 
@@ -270,13 +270,6 @@ class Controls:
       if ray_vision_cruise_enabled:
         if base_cruise_kph > 0.0:
           ray_speed_candidates.append(base_cruise_kph * CV.KPH_TO_MS)
-        carrot_man = self.sm['carrotMan']
-        carrot_desired_kph = float(carrot_man.desiredSpeed)
-        if 0 < carrot_desired_kph < 200 and ray_desired_speed_allowed(
-          carrot_man.desiredSource, carrot_desired_kph, base_cruise_kph, carrot_man.vTurnSpeed,
-          enabled=True, disabled_result=False, allow_non_curve=False,
-        ):
-          ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
         lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
         if lead_target_kph is not None:
           ray_speed_candidates.append(lead_target_kph * CV.KPH_TO_MS)
