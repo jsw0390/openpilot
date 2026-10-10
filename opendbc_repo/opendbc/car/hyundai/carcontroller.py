@@ -622,38 +622,43 @@ class CarController(CarControllerBase):
       self.ray_ev_pending_resume_until = -1
       return 0
 
-    # Request 3 is Ray's lead-only stock setpoint reduction. It never raises
-    # the setting: one SET/DECEL press is followed by a required cluster
-    # feedback update before another virtual press is allowed.
-    if request == 3:
+    # Requests 3/4 change only the retained stock setting. Each virtual
+    # SET/DECEL or RES/ACCEL press needs a cluster acknowledgement before the
+    # next one. Request 4 is used solely to restore the driver's pre-curve
+    # setting after the vision curve source has cleared.
+    if request in (3, 4):
       stock_kph = CS.out.cruiseState.speed * CV.MS_TO_KPH
       ego_kph = CS.out.vEgo * CV.MS_TO_KPH
-      wait_until = getattr(self, 'ray_ev_set_decel_wait_until', -1)
-      next_frame = getattr(self, 'ray_ev_set_decel_next_frame', -1)
-      block_until = getattr(self, 'ray_ev_set_decel_block_until', -1)
-      expected = getattr(self, 'ray_ev_set_decel_expected', 0.0)
+      restore_kph = CC.hudControl.setSpeed * (CV.MS_TO_KPH if CS.is_metric else CV.MS_TO_MPH)
+      direction = -1 if request == 3 else 1
+      wait_until = getattr(self, 'ray_ev_set_adjust_wait_until', -1)
+      next_frame = getattr(self, 'ray_ev_set_adjust_next_frame', -1)
+      block_until = getattr(self, 'ray_ev_set_adjust_block_until', -1)
+      expected = getattr(self, 'ray_ev_set_adjust_expected', 0.0)
 
       if wait_until >= self.frame:
-        if stock_kph <= expected + 0.25:
-          self.ray_ev_set_decel_wait_until = -1
-          self.ray_ev_set_decel_next_frame = self.frame + 50
+        acknowledged = stock_kph <= expected + 0.25 if direction < 0 else stock_kph >= expected - 0.25
+        if acknowledged:
+          self.ray_ev_set_adjust_wait_until = -1
+          self.ray_ev_set_adjust_next_frame = self.frame + 50
         return 0
       if wait_until >= 0:
         # Do not repeat a virtual button if the cluster did not acknowledge it.
-        self.ray_ev_set_decel_wait_until = -1
-        self.ray_ev_set_decel_block_until = self.frame + 500
+        self.ray_ev_set_adjust_wait_until = -1
+        self.ray_ev_set_adjust_block_until = self.frame + 500
         return 0
       if self.frame < max(next_frame, block_until):
         return 0
-      # A curve/lead request begins while the cluster setpoint normally equals
-      # the current vehicle speed. Allow that first decrement, then require
-      # cluster feedback before every subsequent decrement.
-      if 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph >= ego_kph - 0.25:
-        self.ray_ev_set_decel_expected = stock_kph - 1.0
-        self.ray_ev_set_decel_wait_until = self.frame + 150
-        self.ray_ev_set_decel_next_frame = self.frame + 50
-        return Buttons.SET_DECEL
-      return 0
+      if direction < 0 and 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph >= ego_kph - 0.25:
+        send_button = Buttons.SET_DECEL
+      elif direction > 0 and 30 <= stock_kph < 160 and stock_kph < restore_kph - 0.25:
+        send_button = Buttons.RES_ACCEL
+      else:
+        return 0
+      self.ray_ev_set_adjust_expected = stock_kph + direction
+      self.ray_ev_set_adjust_wait_until = self.frame + 150
+      self.ray_ev_set_adjust_next_frame = self.frame + 50
+      return send_button
 
     if request < 0:
       self.ray_ev_pending_resume_until = -1

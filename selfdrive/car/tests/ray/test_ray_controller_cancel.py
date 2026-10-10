@@ -119,6 +119,14 @@ class TestRayControllerCancel:
     self.cs.out.cruiseState.speed = 60 / 3.6
     assert self.h.make_spam_button(self.cc, self.cs) == Buttons.SET_DECEL
 
+  def test_curve_restore_raises_only_to_requested_stock_speed(self):
+    self.cs.out.gearStep = 7
+    self.cs.out.activateCruise = 4
+    self.cs.out.vEgo = 40 / 3.6
+    self.cs.out.cruiseState.speed = 40 / 3.6
+    self.cc.hudControl.setSpeed = 60 / 3.6
+    assert self.h.make_spam_button(self.cc, self.cs) == Buttons.RES_ACCEL
+
   def test_unacknowledged_setpoint_reduction_is_blocked(self):
     self.cs.out.gearStep = 7
     self.cs.out.activateCruise = 3
