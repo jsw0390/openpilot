@@ -112,6 +112,13 @@ class TestRayControllerCancel:
     self.h.frame += 1
     assert self.h.make_spam_button(self.cc, self.cs) == 0
 
+  def test_curve_setpoint_reduction_can_start_at_current_speed(self):
+    self.cs.out.gearStep = 7
+    self.cs.out.activateCruise = 3
+    self.cs.out.vEgo = 60 / 3.6
+    self.cs.out.cruiseState.speed = 60 / 3.6
+    assert self.h.make_spam_button(self.cc, self.cs) == Buttons.SET_DECEL
+
   def test_unacknowledged_setpoint_reduction_is_blocked(self):
     self.cs.out.gearStep = 7
     self.cs.out.activateCruise = 3

@@ -24,6 +24,7 @@ METHODS = {
   '_auto_speed_up',
   '_ray_ipedal_enabled',
   '_ray_ipedal_set_cruise',
+  '_ray_curve_target_kph',
   '_update_ray_ipedal_assist',
   '_ray_lead_target_kph',
 }
@@ -206,6 +207,14 @@ class TestRayManualOff:
     assert self.helper._ray_ev_confirmed_stock_speed(self.cs) == 47
     self.cs.cruiseState.speed = 0.0
     assert self.helper._ray_ev_confirmed_stock_speed(self.cs) is None
+
+  def test_curve_source_requires_a_large_confirmed_speed_drop(self):
+    self.helper.desiredSource = 'vturn'
+    self.helper.desiredSpeed = 40.0
+    self.helper.vTurnSpeed = 30.0
+    assert self.helper._ray_curve_target_kph(60.0) == 40.0
+    self.helper.desiredSource = 'road'
+    assert self.helper._ray_curve_target_kph(60.0) is None
 
   def test_other_vehicle_path_is_unchanged(self):
     self.helper.is_ray_ev = False

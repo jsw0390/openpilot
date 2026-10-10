@@ -4,7 +4,7 @@ import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
-from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -884,6 +884,16 @@ class VCruiseCarrot:
       self._cruise_ready = enable == -2
     self._add_log(reason)
 
+  def _ray_curve_target_kph(self, stock_kph):
+    # Only use explicit curve/turn sources. Road limits, navigation estimates,
+    # and an absent source must never rewrite the driver's stock setpoint.
+    if not ray_desired_speed_allowed(
+        self.desiredSource, self.desiredSpeed, stock_kph, self.vTurnSpeed,
+        enabled=self._ray_ipedal_enabled(), disabled_result=False, allow_non_curve=False):
+      return None
+    target_kph = float(self.desiredSpeed)
+    return target_kph if 30.0 <= target_kph < stock_kph else None
+
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
     # The stock controller owns the retained speed. This assistant only lowers
     # that stock setting for a credible lead; it never brakes directly or
@@ -895,16 +905,8 @@ class VCruiseCarrot:
       self._ray_lead_clear_frames = 0
       return v_cruise_kph
 
-    if not self._ray_lead_data_valid:
-      self._ray_ipedal_active = False
-      self._ray_lead_clear_frames = 0
-      return v_cruise_kph
-
-    target_kph = self._ray_lead_target_kph(CS, v_cruise_kph)
-    need_decel = target_kph is not None and self.v_ego_kph_set - target_kph >= 3.0
     stock_kph = CS.cruiseState.speed * 3.6
     stock_setpoint_known = 30 <= stock_kph <= min(160, v_cruise_kph + 1)
-    cruise_active = CS.cruiseState.enabled or CC.enabled
 
     # Without confirmed stock-speed feedback, no virtual button is safe.
     if not stock_setpoint_known:
@@ -912,14 +914,23 @@ class VCruiseCarrot:
       self._ray_lead_clear_frames = 0
       return v_cruise_kph
 
+    lead_target_kph = self._ray_lead_target_kph(CS, stock_kph) if self._ray_lead_data_valid else None
+    curve_target_kph = self._ray_curve_target_kph(stock_kph)
+    targets = [target for target in (lead_target_kph, curve_target_kph) if target is not None]
+    target_kph = min(targets) if targets else None
+    need_decel = target_kph is not None and self.v_ego_kph_set - target_kph >= 3.0
+    # Ray's cluster uses step 7 for a physically active stock cruise even
+    # though ACC_REQ is not asserted for this button-only integration.
+    cruise_active = CS.cruiseState.enabled or CC.enabled or getattr(CS, 'gearStep', 0) == 7
+
     self._ray_ipedal_active = need_decel and cruise_active
     self._ray_ipedal_timer = self._ray_ipedal_timer + 1 if self._ray_ipedal_active else 0
     self._ray_lead_clear_frames = 0
     # The controller sends one SET/DECEL only if the reported stock setting
     # is still above actual speed. It must observe each cluster update before
     # it can send the next step.
-    if self._ray_ipedal_active and stock_kph > CS.vEgo * 3.6 + 1.0:
-      self._ray_ipedal_set_cruise(3, "Ray lead: lower stock set speed")
+    if self._ray_ipedal_active and stock_kph > target_kph + 0.25:
+      self._ray_ipedal_set_cruise(3, "Ray lead/curve: lower stock set speed")
     return v_cruise_kph
 
   def _ray_lead_target_kph(self, CS, cruise_kph):

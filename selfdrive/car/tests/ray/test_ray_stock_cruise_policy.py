@@ -34,8 +34,8 @@ def step(b, count):
 
 
 @pytest.mark.parametrize('speed', [35, 47, 60, 100])
-@pytest.mark.parametrize('source', ['', 'road', 'atc', 'vturn', 'model', 'route'])
-def test_no_lead_never_regulates_stock_speed(speed, source):
+@pytest.mark.parametrize('source', ['', 'road', 'unknown'])
+def test_no_lead_non_curve_sources_never_regulate_stock_speed(speed, source):
   b = upper.TestRayManualOff()
   b.setup_method()
   b.helper.v_ego_kph_set = speed
@@ -46,6 +46,22 @@ def test_no_lead_never_regulates_stock_speed(speed, source):
     assert b.helper._update_ray_ipedal_assist(b.cs, b.cc, 40) == 40
     assert b.helper._activate_cruise == 0
   assert not b.helper._cruise_cancel_state
+
+
+@pytest.mark.parametrize('source', ['atc', 'atc2', 'vturn', 'model', 'route'])
+def test_confirmed_sharp_curve_can_request_stock_speed_reduction(source):
+  b = upper.TestRayManualOff()
+  b.setup_method()
+  h = b.helper
+  h.v_ego_kph_set = 60
+  h.desiredSource, h.desiredSpeed, h.vTurnSpeed = source, 40, 30
+  b.cs.vEgo = 60 / 3.6
+  b.cs.gearStep = 7
+  b.cs.cruiseState.speed = 60 / 3.6
+  b.cs.cruiseState.enabled = False
+  h._ray_lead_data_valid = False
+  h._update_ray_ipedal_assist(b.cs, b.cc, 60)
+  assert h._activate_cruise == 3
 
 
 def test_lead_clear_never_restores_the_stock_setting():

@@ -645,7 +645,10 @@ class CarController(CarControllerBase):
         return 0
       if self.frame < max(next_frame, block_until):
         return 0
-      if 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph > ego_kph + 1.0:
+      # A curve/lead request begins while the cluster setpoint normally equals
+      # the current vehicle speed. Allow that first decrement, then require
+      # cluster feedback before every subsequent decrement.
+      if 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph >= ego_kph - 0.25:
         self.ray_ev_set_decel_expected = stock_kph - 1.0
         self.ray_ev_set_decel_wait_until = self.frame + 150
         self.ray_ev_set_decel_next_frame = self.frame + 50
