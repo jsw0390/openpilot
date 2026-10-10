@@ -359,7 +359,12 @@ class VCruiseCarrot:
     self._prepare_brake_gas(CS, CC)
     if CC.enabled:
       self._cruise_ready = False
-    v_cruise_kph = self._update_cruise_buttons(CS, CC, self.v_cruise_kph)
+    # Use the setpoint the Ray cluster is currently holding as the button
+    # base. This replaces a stale local maximum after the driver accelerates
+    # and presses SET, while still applying the physical button immediately.
+    ray_stock_kph = self._ray_ev_confirmed_stock_speed(CS) if self.is_ray_ev else None
+    button_base_kph = ray_stock_kph if ray_stock_kph is not None else self.v_cruise_kph
+    v_cruise_kph = self._update_cruise_buttons(CS, CC, button_base_kph)
 
     if self._activate_cruise > 0:
       #self.events.append(EventName.buttonEnable)
@@ -529,6 +534,15 @@ class VCruiseCarrot:
 
   def _ray_ev_set_speed(self):
     return max(self.v_ego_kph_set, self._cruise_speed_min)
+
+  def _ray_ev_confirmed_stock_speed(self, CS):
+    # carstate maps ELECT_GEAR.SLC_SET_SPEED here only while the factory
+    # cruise display is set. This is authoritative over the old local UI
+    # value, which otherwise can diverge from the cluster.
+    stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
+    if 30 <= stock_kph <= 160:
+      return int(stock_kph + 0.5)
+    return None
 
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:

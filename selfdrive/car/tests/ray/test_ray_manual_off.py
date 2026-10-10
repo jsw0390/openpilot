@@ -18,6 +18,7 @@ METHODS = {
   '_update_cruise_buttons',
   '_ray_ev_resume_speed',
   '_ray_ev_set_speed',
+  '_ray_ev_confirmed_stock_speed',
   '_cruise_control',
   '_update_cruise_state',
   '_auto_speed_up',
@@ -27,7 +28,7 @@ METHODS = {
   '_ray_lead_target_kph',
 }
 namespace = runpy.run_path(str(ROOT / 'selfdrive/carrot/ray_vision.py'))
-namespace.update(math=math, ButtonType=BUTTONS, GearShifter=NS(drive='drive'), CV=NS(MPH_TO_KPH=1.609344))
+namespace.update(math=math, ButtonType=BUTTONS, GearShifter=NS(drive='drive'), CV=NS(MPH_TO_KPH=1.609344, MS_TO_KPH=3.6))
 tree = ast.parse((ROOT / 'selfdrive/car/cruise.py').read_text())
 source_class = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'VCruiseCarrot')
 methods = [n for n in source_class.body if isinstance(n, ast.FunctionDef) and n.name in METHODS]
@@ -199,6 +200,12 @@ class TestRayManualOff:
   def test_no_button_has_no_manual_cancel(self):
     for _ in range(20):
       assert (self.tick()[0]) == (0)
+
+  def test_confirmed_cluster_setpoint_is_validated_before_ui_sync(self):
+    self.cs.cruiseState.speed = 47.0 / 3.6
+    assert self.helper._ray_ev_confirmed_stock_speed(self.cs) == 47
+    self.cs.cruiseState.speed = 0.0
+    assert self.helper._ray_ev_confirmed_stock_speed(self.cs) is None
 
   def test_other_vehicle_path_is_unchanged(self):
     self.helper.is_ray_ev = False

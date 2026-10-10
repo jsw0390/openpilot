@@ -190,6 +190,22 @@ class TestNativeRaySequence:
     assert request == 0
     assert not events.contains(ET.ENABLE)
 
+  def test_cluster_stock_setpoint_replaces_stale_comma_speed(self):
+    h = NativeHarness()
+    h.h.v_cruise_kph = 60.0
+    h.cs.cruiseState.speed = 47.0 / 3.6
+    h.tick()
+    assert h.h.v_cruise_kph == 47.0
+
+  def test_cluster_setpoint_is_the_base_for_one_kph_button_change(self):
+    h = NativeHarness()
+    h.h.v_cruise_kph = 60.0
+    h.cs.cruiseState.speed = 47.0 / 3.6
+    h.tick('accelCruise', True)
+    h.tick()
+    h.tick('accelCruise', False)
+    assert h.h.v_cruise_kph == 48.0
+
   def test_missing_stock_setpoint_pause_disables_until_explicit_driver_resume(self):
     h = NativeHarness()
     h.h.v_cruise_kph = 40.0
