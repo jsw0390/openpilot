@@ -1365,17 +1365,17 @@
       "group": "크루즈",
       "name": "RayVisionCruiseControl",
       "title": "레이EV 비전크루즈(0)",
-      "descr": "0: 끔\n1/2: 앞차 감속 보조 사용(아래 i-Pedal 보조를 2로 설정). 속도 유지와 복귀 가속은 순정 크루즈가 담당하며 도로속도·커브로 설정속도를 바꾸지 않습니다.",
+      "descr": "0: 끔\n1/2: 앞차·비전 코너 감속 보조 사용(아래 i-Pedal 보조를 2로 설정). 감속 때만 차량 순정 크루즈 설정속도를 내리고, 앞차·코너가 사라지면 원래 설정속도로 복원합니다. 속도 유지와 복귀 가속은 순정 크루즈가 담당합니다.",
       "egroup": "CRUISE",
       "etitle": "Ray EV Vision Cruise(0)",
-      "edescr": "0: Off\n1/2: Lead assistance (also set i-Pedal Assist to 2). Stock cruise maintains speed and accelerates on resume; road limits and curves do not change its setpoint.",
+      "edescr": "0: Off\n1/2: Lead and vision-curve assistance (also set i-Pedal Assist to 2). It lowers the stock setpoint only for a lead or curve, then restores the original setpoint. Stock cruise maintains speed and accelerates on resume.",
       "min": 0,
       "max": 2,
       "default": 0,
       "unit": 1,
       "cgroup": "巡航设置",
       "ctitle": "Ray EV 视觉巡航 (0)",
-      "cdescr": "0: 关闭\n1/2: 前车辅助（同时将 i-Pedal 辅助设为 2）。原车巡航负责稳速和恢复加速；道路限速与弯道不会改变其设定速度。"
+      "cdescr": "0: 关闭\n1/2: 前车和视觉弯道辅助（同时将 i-Pedal 辅助设为 2）。仅在前车或弯道时降低原车设定速度，情况消失后恢复原设定速度；原车巡航负责稳速和恢复加速。"
     },
     {
       "group": "크루즈",
