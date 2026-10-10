@@ -622,6 +622,36 @@ class CarController(CarControllerBase):
       self.ray_ev_pending_resume_until = -1
       return 0
 
+    # Request 3 is Ray's lead-only stock setpoint reduction. It never raises
+    # the setting: one SET/DECEL press is followed by a required cluster
+    # feedback update before another virtual press is allowed.
+    if request == 3:
+      stock_kph = CS.out.cruiseState.speed * CV.MS_TO_KPH
+      ego_kph = CS.out.vEgo * CV.MS_TO_KPH
+      wait_until = getattr(self, 'ray_ev_set_decel_wait_until', -1)
+      next_frame = getattr(self, 'ray_ev_set_decel_next_frame', -1)
+      block_until = getattr(self, 'ray_ev_set_decel_block_until', -1)
+      expected = getattr(self, 'ray_ev_set_decel_expected', 0.0)
+
+      if wait_until >= self.frame:
+        if stock_kph <= expected + 0.25:
+          self.ray_ev_set_decel_wait_until = -1
+          self.ray_ev_set_decel_next_frame = self.frame + 50
+        return 0
+      if wait_until >= 0:
+        # Do not repeat a virtual button if the cluster did not acknowledge it.
+        self.ray_ev_set_decel_wait_until = -1
+        self.ray_ev_set_decel_block_until = self.frame + 500
+        return 0
+      if self.frame < max(next_frame, block_until):
+        return 0
+      if 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph > ego_kph + 1.0:
+        self.ray_ev_set_decel_expected = stock_kph - 1.0
+        self.ray_ev_set_decel_wait_until = self.frame + 150
+        self.ray_ev_set_decel_next_frame = self.frame + 50
+        return Buttons.SET_DECEL
+      return 0
+
     if request < 0:
       self.ray_ev_pending_resume_until = -1
     elif request == 2 and request_edge:

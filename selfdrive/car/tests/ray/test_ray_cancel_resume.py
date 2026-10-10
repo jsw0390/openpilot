@@ -123,13 +123,15 @@ class TestRayPauseHysteresis:
   def test_lead_target_above_ego_does_not_start_pause_cycle(self):
     assert (self.run_frames()) == ([])
 
-  def test_slower_lead_pauses_and_stays_paused_at_constant_speed(self):
+  def test_slower_lead_requests_stock_setpoint_reduction(self):
     self.h.v_lead_kph = 40.0
-    assert (self.run_frames()) == ([(0, -2)])
+    requests = self.run_frames()
+    assert requests[0] == (0, 3)
+    assert {request for _, request in requests} == {3}
 
-  def test_slowdown_alone_never_resumes_into_a_slower_lead(self):
+  def test_slowdown_alone_never_requests_an_increase(self):
     self.h.v_lead_kph = 40.0
-    assert (self.run_frames(121)) == ([(0, -2)])
+    assert {request for _, request in self.run_frames(121)} == {3}
     self.h.v_ego_kph_set = 46.0
     self.b.cs.vEgo = 46 / 3.6
     assert self.run_frames(1000) == []

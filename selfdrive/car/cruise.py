@@ -871,8 +871,9 @@ class VCruiseCarrot:
     self._add_log(reason)
 
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    # The stock controller owns the retained speed. This assistant only
-    # pauses for a credible lead; it never regulates ordinary speed/curves.
+    # The stock controller owns the retained speed. This assistant only lowers
+    # that stock setting for a credible lead; it never brakes directly or
+    # raises the setting automatically.
     if (not self._ray_ipedal_enabled() or not self._ray_ev_main_on or self._cruise_cancel_state or
         CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or self.v_ego_kph_set < 15):
       self._ray_ipedal_active = False
@@ -881,9 +882,6 @@ class VCruiseCarrot:
       return v_cruise_kph
 
     if not self._ray_lead_data_valid:
-      if self._ray_ipedal_active:
-        self._cruise_cancel_state = True
-        self._ray_ipedal_set_cruise(-1, "Ray lead data unavailable: driver resume required")
       self._ray_ipedal_active = False
       self._ray_lead_clear_frames = 0
       return v_cruise_kph
@@ -894,43 +892,20 @@ class VCruiseCarrot:
     stock_setpoint_known = 30 <= stock_kph <= min(160, v_cruise_kph + 1)
     cruise_active = CS.cruiseState.enabled or CC.enabled
 
-    # An unknown or unexpectedly higher retained speed must never be restored
-    # automatically. A driver can still resume using the physical switch.
-    if not stock_setpoint_known and (self._ray_ipedal_active or (need_decel and cruise_active)):
+    # Without confirmed stock-speed feedback, no virtual button is safe.
+    if not stock_setpoint_known:
       self._ray_ipedal_active = False
       self._ray_lead_clear_frames = 0
-      self._cruise_cancel_state = True
-      self._ray_ipedal_set_cruise(-1, "Ray stock set speed unavailable/mismatched: driver resume required")
       return v_cruise_kph
 
-    if not self._ray_ipedal_active:
-      self._ray_lead_clear_frames = 0
-      if need_decel and cruise_active:
-        self._ray_ipedal_active = True
-        self._ray_ipedal_timer = 0
-        self._ray_ipedal_set_cruise(-2, "Ray lead: pause stock cruise")
-      return v_cruise_kph
-
-    self._ray_ipedal_timer += 1
-    # Evaluate the lead at the speed stock cruise would restore, not just the
-    # slower coasting speed. Otherwise a slow lead causes pause/resume cycling.
-    lead_clear = self.d_rel <= 0
-    if self.d_rel > 0 and (self.lead_radar or self.lead_prob >= self.rayVisionCruiseLeadProb):
-      resume_target = ray_lead_target_speed_kph(
-        stock_kph / 3.6, self.d_rel, (self.v_lead_kph - stock_kph) / 3.6,
-        self.v_lead_kph, stock_kph, self.rayVisionCruiseTFollowAdd,
-        lead_prob=self.lead_prob, lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb,
-      )
-      lead_clear = resume_target is None or resume_target >= stock_kph
-    self._ray_lead_clear_frames = self._ray_lead_clear_frames + 1 if lead_clear else 0
-    # Two seconds of fresh clear observations are required; a timeout alone
-    # never resumes. Driver pedals/OFF and missing feedback cancel this latch.
-    if self._ray_lead_clear_frames >= 200 and not cruise_active:
-      self._ray_ipedal_active = False
-      self._ray_lead_clear_frames = 0
-      self._ray_ipedal_set_cruise(2, "Ray lead clear: resume retained stock speed")
-    elif self._activate_cruise > 0:
-      self._activate_cruise = 0
+    self._ray_ipedal_active = need_decel and cruise_active
+    self._ray_ipedal_timer = self._ray_ipedal_timer + 1 if self._ray_ipedal_active else 0
+    self._ray_lead_clear_frames = 0
+    # The controller sends one SET/DECEL only if the reported stock setting
+    # is still above actual speed. It must observe each cluster update before
+    # it can send the next step.
+    if self._ray_ipedal_active and stock_kph > CS.vEgo * 3.6 + 1.0:
+      self._ray_ipedal_set_cruise(3, "Ray lead: lower stock set speed")
     return v_cruise_kph
 
   def _ray_lead_target_kph(self, CS, cruise_kph):

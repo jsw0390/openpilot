@@ -56,7 +56,7 @@ class TestRayUnknownSetpoint:
     b = self.lower_fixture(35, fingerprint='OTHER')
     assert (lower.Buttons.RES_ACCEL) in (self.run_lower(b))
 
-  def test_missing_setpoint_pause_stays_off_after_slowdown(self):
+  def test_missing_setpoint_never_requests_a_virtual_button(self):
     b = upper.TestRayManualOff()
     b.setup_method()
     h = b.helper
@@ -66,9 +66,8 @@ class TestRayUnknownSetpoint:
     h.v_ego_kph_set = 47.0
     b.cs.vEgo = 44.36 / 3.6
     h._update_ray_ipedal_assist(b.cs, b.cc, 40.0)
-    assert (h._activate_cruise) == (-1)
-    assert h._cruise_cancel_state
-    assert not (h._cruise_ready)
+    assert h._activate_cruise == 0
+    assert not h._cruise_cancel_state
     b.cc.enabled = False
     h.v_ego_kph_set = 38.0
     b.cs.vEgo = 35 / 3.6
@@ -77,7 +76,7 @@ class TestRayUnknownSetpoint:
       h._update_ray_ipedal_assist(b.cs, b.cc, 40.0)
       assert (h._activate_cruise) == (0)
 
-  def test_feedback_loss_while_paused_prevents_automatic_resume(self):
+  def test_feedback_loss_never_requests_automatic_resume(self):
     b = upper.TestRayManualOff()
     b.setup_method()
     h = b.helper
@@ -87,8 +86,8 @@ class TestRayUnknownSetpoint:
     h._ray_ipedal_active = True
     h._ray_ipedal_timer = 119
     h._update_ray_ipedal_assist(b.cs, b.cc, 40.0)
-    assert (h._activate_cruise) <= (0)
-    assert h._cruise_cancel_state
+    assert h._activate_cruise == 0
+    assert not h._cruise_cancel_state
     assert not (h._ray_ipedal_active)
 
   def test_explicit_pause_resume_can_clear_the_hold(self):

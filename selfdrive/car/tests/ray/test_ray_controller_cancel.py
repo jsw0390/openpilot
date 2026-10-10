@@ -100,6 +100,30 @@ class TestRayControllerCancel:
     self.cs.out.activateCruise = 0
     assert self.h.make_spam_button(self.cc, self.cs) == 0
 
+  def test_lead_setpoint_reduction_waits_for_cluster_feedback(self):
+    self.cs.out.gearStep = 7
+    self.cs.out.activateCruise = 3
+    self.cs.out.vEgo = 50 / 3.6
+    self.cs.out.cruiseState.speed = 60 / 3.6
+    assert self.h.make_spam_button(self.cc, self.cs) == Buttons.SET_DECEL
+    self.h.frame += 100
+    assert self.h.make_spam_button(self.cc, self.cs) == 0
+    self.cs.out.cruiseState.speed = 59 / 3.6
+    self.h.frame += 1
+    assert self.h.make_spam_button(self.cc, self.cs) == 0
+
+  def test_unacknowledged_setpoint_reduction_is_blocked(self):
+    self.cs.out.gearStep = 7
+    self.cs.out.activateCruise = 3
+    self.cs.out.vEgo = 50 / 3.6
+    self.cs.out.cruiseState.speed = 60 / 3.6
+    assert self.h.make_spam_button(self.cc, self.cs) == Buttons.SET_DECEL
+    self.h.frame += 151
+    assert self.h.make_spam_button(self.cc, self.cs) == 0
+    for _ in range(499):
+      self.h.frame += 1
+      assert self.h.make_spam_button(self.cc, self.cs) == 0
+
   def test_disabled_and_already_paused_does_not_send_button(self):
     self.cc.enabled = False
     self.cs.out.activateCruise = -1

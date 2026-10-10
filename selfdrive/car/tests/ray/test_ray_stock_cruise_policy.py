@@ -10,7 +10,7 @@ import test_ray_controller_cancel as lower
 import test_ray_manual_off as upper
 
 
-def paused_lead():
+def slower_lead():
   b = upper.TestRayManualOff()
   b.setup_method()
   h = b.helper
@@ -20,8 +20,7 @@ def paused_lead():
   b.cs.cruiseState.speed = 60 / 3.6
   b.cs.cruiseState.enabled = True
   h._update_ray_ipedal_assist(b.cs, b.cc, 60)
-  assert h._activate_cruise == -2
-  b.cs.cruiseState.enabled = b.cc.enabled = False
+  assert h._activate_cruise == 3
   return b
 
 
@@ -49,62 +48,46 @@ def test_no_lead_never_regulates_stock_speed(speed, source):
   assert not b.helper._cruise_cancel_state
 
 
-def test_fresh_lead_clear_must_persist_then_resume_once():
-  b = paused_lead()
+def test_lead_clear_never_restores_the_stock_setting():
+  b = slower_lead()
   b.helper.d_rel = 0
-  assert step(b, 199) == [0] * 199
-  assert step(b, 1) == [2]
+  assert step(b, 200) == [0] * 200
   assert step(b, 1000) == [0] * 1000
 
 
-def test_reappearing_lead_restarts_clearance_wait():
-  b = paused_lead()
-  b.helper.d_rel = 0
-  assert step(b, 199) == [0] * 199
-  b.helper.d_rel = 20
-  assert step(b, 1) == [0]
-  b.helper.d_rel = 0
-  assert step(b, 199) == [0] * 199
-  assert step(b, 1) == [2]
-
-
-def test_slow_lead_blocks_resume_even_after_ego_matches_lead_speed():
-  b = paused_lead()
+def test_slow_lead_stops_requesting_reduction_at_current_speed():
+  b = slower_lead()
   b.helper.v_ego_kph_set = b.helper.v_lead_kph = 38
   b.helper.v_rel = 0
   b.cs.vEgo = 38 / 3.6
   assert step(b, 3000) == [0] * 3000
-  b.helper.v_lead_kph = 65
-  assert step(b, 200)[-1] == 2
 
 
-def test_uncertain_track_never_counts_as_clear():
-  b = paused_lead()
+def test_uncertain_track_never_requests_stock_speed_changes():
+  b = slower_lead()
   b.helper.lead_prob = 0.5
   assert step(b, 1000) == [0] * 1000
 
 
-def test_stale_feed_and_feedback_loss_require_driver_resume():
+def test_stale_feed_and_missing_setpoint_do_not_press_virtual_buttons():
   for missing in ('lead', 'setpoint'):
-    b = paused_lead()
+    b = slower_lead()
     b.helper.d_rel = 0
-    step(b, 199)
     if missing == 'lead':
       b.helper._ray_lead_data_valid = False
     else:
       b.cs.cruiseState.speed = 0
-    assert step(b, 1) == [-1]
+    assert step(b, 1) == [0]
     b.helper._ray_lead_data_valid = True
     b.cs.cruiseState.speed = 60 / 3.6
     assert step(b, 1000) == [0] * 1000
-    assert b.helper._cruise_cancel_state
 
 
-def test_unexpectedly_high_stock_setpoint_is_never_restored():
-  b = paused_lead()
+def test_unexpectedly_high_stock_setpoint_is_never_changed():
+  b = slower_lead()
   b.cs.cruiseState.speed = 67 / 3.6
   b.helper.d_rel = 0
-  assert step(b, 1) == [-1]
+  assert step(b, 1) == [0]
   assert step(b, 1000) == [0] * 1000
 
 
