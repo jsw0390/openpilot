@@ -362,6 +362,14 @@ class CarState(CarStateBase):
     if self.CP.flags & (HyundaiFlags.HYBRID | HyundaiFlags.EV):
       gear = cp.vl["ELECT_GEAR"]["Elect_Gear_Shifter"]
       ret.gearStep = cp.vl["ELECT_GEAR"]["Elect_Gear_Step"]
+      # Ray EV does not publish SCC11/VSetDis. Its cluster carries the
+      # retained factory-cruise speed in ELECT_GEAR. Do not expose a stale
+      # value while cruise is paused: step 7 is the cruise-set display state.
+      if ray_ev_op_long and ret.gearStep == 7:
+        ray_stock_speed = cp.vl["ELECT_GEAR"]["SLC_SET_SPEED"]
+        if 30 <= ray_stock_speed <= 160:
+          ret.cruiseState.speed = ray_stock_speed * speed_conv
+          ret.cruiseState.speedCluster = ret.cruiseState.speed
     elif self.CP.flags & HyundaiFlags.FCEV:
       gear = cp.vl["EMS20"]["HYDROGEN_GEAR_SHIFTER"]
     elif self.CP.flags & HyundaiFlags.CLUSTER_GEARS:

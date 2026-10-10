@@ -91,7 +91,21 @@ class Car:
           break
 
       alpha_long_allowed = self.params.get_bool("AlphaLongitudinalEnabled")
-      num_pandas = len(messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates)
+      panda_states = messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates
+      num_pandas = len(panda_states)
+      ray_camera_diagnostics = os.environ.get("RAY_CAMERA_DIAGNOSTICS") == "1"
+      # Ray EV comma four harnesses can expose a silent CAN1.  Do the startup
+      # identification only on CAN0 when explicitly enabled for this known
+      # configuration; active safety and vehicle control remain unchanged.
+      ray_can0_startup = ray_camera_diagnostics or os.environ.get("RAY_CAN0_STARTUP") == "1"
+      if ray_can0_startup:
+        if self.params.get("CarSelected3") != "Kia Ray EV" or num_pandas != 1 or str(panda_states[0].pandaType) != "cuatro":
+          raise RuntimeError("CAN0 startup requires a manually selected Ray EV and one comma four")
+
+      if ray_camera_diagnostics:
+        cloudlog.warning("Ray camera-only VIN/FW diagnostics: vehicle controls will remain disabled")
+      elif ray_can0_startup:
+        cloudlog.warning("Ray CAN0-only startup identification enabled for comma four")
 
       cached_params = None
       cached_params_raw = self.params.get("CarParamsCache")
@@ -99,7 +113,11 @@ class Car:
         with car.CarParams.from_bytes(cached_params_raw) as _cached_params:
           cached_params = _cached_params
 
-      self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params)
+      # A manually selected Ray can record CAN passively without VIN/FW probes.
+      # Keep normal vehicle identification whenever controls are enabled.
+      query_fw = ray_can0_startup or self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
+      self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params,
+                        query_fw=query_fw, query_bus0_only=ray_can0_startup)
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
@@ -108,10 +126,15 @@ class Car:
     else:
       self.CI, self.CP = CI, CI.CP
       self.RI = RI
+      ray_camera_diagnostics = False
+      ray_can0_startup = False
 
     self.CP.alternativeExperience = 0
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
-    controller_available = self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly
+    # If the toggle changes during receive-only identification, stay passive
+    # until a restart performs normal identification for active controls.
+    controller_available = (self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly and
+                            not ray_camera_diagnostics and (CI is not None or query_fw))
     self.CP.passive = not controller_available or self.CP.dashcamOnly
     if self.CP.passive:
       safety_config = structs.CarParams.SafetyConfig()
@@ -147,6 +170,10 @@ class Car:
     # Write CarParams for controls and radard
     cp_bytes = self.CP.to_bytes()
     self.params.put("CarParams", cp_bytes)
+    if self.CP.passive:
+      # Passive mode never calls controls_update/CI.init. Let pandad leave
+      # fingerprinting mode only after its noOutput configuration is stored.
+      self.params.put_bool("ControlsReady", True)
     self.params.put_nonblocking("CarParamsCache", cp_bytes)
     self.params.put_nonblocking("CarParamsPersistent", cp_bytes)
 

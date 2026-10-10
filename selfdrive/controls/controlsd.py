@@ -28,7 +28,7 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph
 
 from openpilot.selfdrive.carrot.carrot_controls import CarrotControls
 
@@ -138,8 +138,21 @@ class Controls:
     #self.soft_hold_active = CS.softHoldActive #car.OnroadEvent.EventName.softHold in [e.name for e in self.sm['onroadEvents']]
 
     # Check which actuators can be enabled
-    standstill = abs(CS.vEgo) <= max(self.CP.minSteerSpeed, MIN_LATERAL_CONTROL_SPEED) or CS.standstill
-    CC.latActive = ((self.sm['selfdriveState'].active or lateral_enabled) and CS.latEnabled and
+    is_ray_ev = str(self.CP.carFingerprint) == "KIA_RAY_EV"
+    # Ray can retain steering while creeping below the generic 0.3 m/s floor.
+    # Keep the vehicle's own minimum, wheel-speed standstill flag and a small
+    # nonzero floor for the curvature estimator's division by vehicle speed.
+    min_lateral_speed = max(self.CP.minSteerSpeed, 0.1 if is_ray_ev else MIN_LATERAL_CONTROL_SPEED)
+    standstill = abs(CS.vEgo) <= min_lateral_speed or CS.standstill
+    if is_ray_ev:
+      # Ray steering follows its own safety-checked state. Cruise engagement
+      # and AlwaysLateral must not bypass the steering switch or these checks.
+      lateral_enabled = (not self.CP.passive and self.sm['selfdriveState'].lateralActive and driving_gear and
+                         CS.canValid and not CS.canTimeout and self.sm.all_checks(
+                           ['selfdriveState', 'carState', 'modelV2', 'liveParameters', 'livePose', 'lateralPlan', 'driverMonitoringState']))
+    else:
+      lateral_enabled = self.sm['selfdriveState'].active or lateral_enabled
+    CC.latActive = (lateral_enabled and CS.latEnabled and
                     not CS.steerFaultTemporary and not CS.steerFaultPermanent and not standstill)
     CC.latActive = self.carrot_controls.lat_suspend_control(CS, CC.latActive)
     CC.longActive = CC.enabled and not any(e.overrideLongitudinal for e in self.sm['onroadEvents']) and self.CP.openpilotLongitudinalControl
@@ -257,13 +270,6 @@ class Controls:
       if ray_vision_cruise_enabled:
         if base_cruise_kph > 0.0:
           ray_speed_candidates.append(base_cruise_kph * CV.KPH_TO_MS)
-        carrot_man = self.sm['carrotMan']
-        carrot_desired_kph = float(carrot_man.desiredSpeed)
-        if 0 < carrot_desired_kph < 200 and ray_desired_speed_allowed(
-          carrot_man.desiredSource, carrot_desired_kph, base_cruise_kph, carrot_man.vTurnSpeed,
-          enabled=True, disabled_result=False, allow_non_curve=False,
-        ):
-          ray_speed_candidates.append(carrot_desired_kph * CV.KPH_TO_MS)
         lead_target_kph = self._ray_lead_target_speed(CS, base_cruise_kph)
         if lead_target_kph is not None:
           ray_speed_candidates.append(lead_target_kph * CV.KPH_TO_MS)
@@ -283,7 +289,7 @@ class Controls:
     else:
       hudControl.setSpeed = setSpeed if lp.xState == 3 else float(desired_kph * CV.KPH_TO_MS)
     hudControl.speedVisible = CC.enabled
-    hudControl.lanesVisible = CC.enabled
+    hudControl.lanesVisible = CC.enabled or CC.latActive
     hudControl.leadVisible = self.sm['longitudinalPlan'].hasLead
     hudControl.leadDistanceBars = self.sm['selfdriveState'].personality.raw + 1
     hudControl.visualAlert = self.sm['selfdriveState'].alertHudVisual
