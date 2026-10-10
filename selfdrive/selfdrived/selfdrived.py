@@ -20,7 +20,7 @@ from openpilot.selfdrive.selfdrived.events import Events, ET, EVENTS, Alert, Ale
 from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
-from openpilot.selfdrive.selfdrived.ray_lateral import RayLateralState, panda_lateral_ready
+from openpilot.selfdrive.selfdrived.ray_lateral import LONGITUDINAL_EVENTS, RayLateralState, panda_lateral_ready
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
 
@@ -392,7 +392,7 @@ class SelfdriveD:
     if any((self.sm.frame - self.sm.recv_frame[s])*DT_CTRL > 10. for s in self.sensor_packets):
       self.events.add(EventName.sensorDataInvalid)
 
-    if not REPLAY:
+    if not REPLAY and self.ray_lateral is None:
       # Check for mismatch between openpilot and car's PCM
       #cruise_mismatch = CS.cruiseState.enabled and (not self.enabled or not self.CP.pcmCruise)
       cruise_mismatch = CS.cruiseState.enabled and not self.enabled
@@ -554,6 +554,12 @@ class SelfdriveD:
   def step(self):
     CS = self.data_sample()
     self.update_events(CS)
+    if self.ray_lateral is not None:
+      # Ray EV keeps the factory cruise controller in charge of longitudinal
+      # driving. Its physical cruise events must not engage the generic
+      # openpilot state machine, which would wait for panda controlsAllowed and
+      # immediately raise Controls Mismatch while stock cruise is operating.
+      self.events.events = [event for event in self.events.events if event not in LONGITUDINAL_EVENTS]
     if not self.CP.passive and self.initialized:
       self.enabled, self.active = self.state_machine.update(self.events)
     if self.ray_lateral is not None:

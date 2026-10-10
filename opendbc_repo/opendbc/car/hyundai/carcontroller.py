@@ -631,7 +631,11 @@ class CarController(CarControllerBase):
 
     if stock_active is True:
       self.ray_ev_pending_resume_until = -1
-      if (not CC.enabled or request < 0) and not self.ray_ev_pause_sent:
+      # A physical stock-cruise enable leaves CC disabled by design on Ray EV.
+      # Do not turn that newly enabled cruise back off merely because openpilot
+      # is not running longitudinal control. Only an explicit safety/lead pause
+      # request may send the vehicle's pause/resume switch.
+      if request < 0 and not self.ray_ev_pause_sent:
         self.ray_ev_pause_sent = True
         return RAY_EV_ACTIVATE_BUTTON
     elif (stock_active is False and CC.enabled and request >= 0 and

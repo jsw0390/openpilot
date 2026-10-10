@@ -94,6 +94,12 @@ class TestRayControllerCancel:
     assert (Buttons.CANCEL) in (sent)
     assert all(b in (0, Buttons.CANCEL) for b in sent)
 
+  def test_driver_enabled_stock_cruise_is_never_auto_paused(self):
+    self.cs.out.gearStep = 7
+    self.cc.enabled = False
+    self.cs.out.activateCruise = 0
+    assert self.h.make_spam_button(self.cc, self.cs) == 0
+
   def test_disabled_and_already_paused_does_not_send_button(self):
     self.cc.enabled = False
     self.cs.out.activateCruise = -1
