@@ -78,22 +78,28 @@ class TestRayPassiveFingerprint:
     self.scope['get_vin'].assert_not_called()
     interface.get_params.assert_called_once_with('KIA_RAY_EV', self.finger, [], True, True, docs=False)
 
-  def card_choice(self, enabled, selected):
+  def card_choice(self, enabled, selected, can0_startup=False):
     tree = ast.parse(CARD.read_text())
     assignments = {ast.unparse(n.targets[0]): n for n in ast.walk(tree) if isinstance(n, ast.Assign) and len(n.targets) == 1}
     h = NS(params=NS(get_bool=lambda _: enabled, get=lambda _: selected), can_callbacks=('rx', 'tx'))
     factory = Mock()
     scope = dict(self=h, get_car=factory, obd_callback=lambda _: 'mux', alpha_long_allowed=True,
-                 is_release=True, num_pandas=1, cached_params=None, ray_camera_diagnostics=False)
+                 is_release=True, num_pandas=1, cached_params=None, ray_camera_diagnostics=False,
+                 ray_can0_startup=can0_startup)
     exec(compile_nodes([assignments['query_fw'], assignments['self.CI']], CARD), scope)
-    return factory.call_args.kwargs['query_fw']
+    return factory.call_args.kwargs
 
   def test_manually_selected_passive_ray_skips_queries(self):
-    assert not (self.card_choice(False, 'Kia Ray EV'))
+    assert not (self.card_choice(False, 'Kia Ray EV')['query_fw'])
 
   def test_active_ray_keeps_queries(self):
-    assert self.card_choice(True, 'Kia Ray EV')
+    assert self.card_choice(True, 'Kia Ray EV')['query_fw']
 
   def test_other_or_unselected_passive_vehicles_keep_identification(self):
     for selected in (None, 'MOCK', 'Hyundai Ioniq 5', 'Kia Ray'):
-      assert self.card_choice(False, selected)
+      assert self.card_choice(False, selected)['query_fw']
+
+  def test_opt_in_ray_can0_startup_queries_without_obd_bus_one(self):
+    choice = self.card_choice(False, 'Kia Ray EV', can0_startup=True)
+    assert choice['query_fw']
+    assert choice['query_bus0_only']

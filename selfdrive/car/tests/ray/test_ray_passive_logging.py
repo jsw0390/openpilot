@@ -47,6 +47,7 @@ class TestRayPassiveLogging:
       'CI': object() if injected else None,
       'query_fw': query_fw,
       'ray_camera_diagnostics': camera_diagnostics,
+      'ray_can0_startup': False,
       'structs': NS(CarParams=NS(SafetyConfig=NS, SafetyModel=NS(noOutput='noOutput'))),
     }
     exec(code, scope)
@@ -99,6 +100,7 @@ class TestRayPassiveLogging:
     h.params = BrokenParams(False)
     with pytest.raises(OSError):
       exec(code, {'self': h, 'CI': object(), 'ray_camera_diagnostics': False,
+                   'ray_can0_startup': False,
                    'structs': NS(CarParams=NS(SafetyConfig=NS, SafetyModel=NS(noOutput='noOutput')))})
     assert (h.params.calls) == ([])
 

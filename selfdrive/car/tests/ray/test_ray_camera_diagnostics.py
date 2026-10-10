@@ -97,8 +97,8 @@ class TestFirmwareBuses:
 ])
 def test_diagnostic_guard_requires_explicit_ray_and_one_comma_four(selected, pandas, allowed):
   tree = ast.parse(CARD.read_text())
-  node = next(n for n in ast.walk(tree) if isinstance(n, ast.If) and ast.unparse(n.test) == 'ray_camera_diagnostics')
-  scope = dict(ray_camera_diagnostics=True, self=NS(params=NS(get=lambda key: selected)),
+  node = next(n for n in ast.walk(tree) if isinstance(n, ast.If) and ast.unparse(n.test) == 'ray_can0_startup')
+  scope = dict(ray_can0_startup=True, self=NS(params=NS(get=lambda key: selected)),
                num_pandas=len(pandas), panda_states=[NS(pandaType=p) for p in pandas], cloudlog=Mock())
   if allowed:
     exec(compile_nodes([node], CARD), scope)

@@ -94,10 +94,18 @@ class Car:
       panda_states = messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates
       num_pandas = len(panda_states)
       ray_camera_diagnostics = os.environ.get("RAY_CAMERA_DIAGNOSTICS") == "1"
-      if ray_camera_diagnostics:
+      # Ray EV comma four harnesses can expose a silent CAN1.  Do the startup
+      # identification only on CAN0 when explicitly enabled for this known
+      # configuration; active safety and vehicle control remain unchanged.
+      ray_can0_startup = ray_camera_diagnostics or os.environ.get("RAY_CAN0_STARTUP") == "1"
+      if ray_can0_startup:
         if self.params.get("CarSelected3") != "Kia Ray EV" or num_pandas != 1 or str(panda_states[0].pandaType) != "cuatro":
-          raise RuntimeError("Camera diagnostics require a manually selected Ray EV and one comma four")
+          raise RuntimeError("CAN0 startup requires a manually selected Ray EV and one comma four")
+
+      if ray_camera_diagnostics:
         cloudlog.warning("Ray camera-only VIN/FW diagnostics: vehicle controls will remain disabled")
+      elif ray_can0_startup:
+        cloudlog.warning("Ray CAN0-only startup identification enabled for comma four")
 
       cached_params = None
       cached_params_raw = self.params.get("CarParamsCache")
@@ -107,9 +115,9 @@ class Car:
 
       # A manually selected Ray can record CAN passively without VIN/FW probes.
       # Keep normal vehicle identification whenever controls are enabled.
-      query_fw = ray_camera_diagnostics or self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
+      query_fw = ray_can0_startup or self.params.get_bool("OpenpilotEnabledToggle") or self.params.get("CarSelected3") != "Kia Ray EV"
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params,
-                        query_fw=query_fw, query_bus0_only=ray_camera_diagnostics)
+                        query_fw=query_fw, query_bus0_only=ray_can0_startup)
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
@@ -119,6 +127,7 @@ class Car:
       self.CI, self.CP = CI, CI.CP
       self.RI = RI
       ray_camera_diagnostics = False
+      ray_can0_startup = False
 
     self.CP.alternativeExperience = 0
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
