@@ -51,14 +51,21 @@ class RayLateralState:
     self.events = Events()
     self.enabled = False
     self.active = False
-    # After a selfdrived restart, an old selected=True message is not a new
-    # driver request. Observe OFF before accepting another rising edge.
+    # Ray starts with its lateral selection on. Do not engage while parked or
+    # unhealthy; emit one enable request after the first healthy driving
+    # state. An explicit LFA-off cancels this boot request permanently.
     self.selected_prev = True
+    self.boot_enable_pending = True
 
   def update(self, selected, events, *, initialized, passive, can_valid, inputs_ok, monitoring_ok, panda_ok):
-    rising = selected and not self.selected_prev
+    boot_ready = (selected and self.boot_enable_pending and initialized and not passive and can_valid and
+                  inputs_ok and monitoring_ok and panda_ok and
+                  EventName.wrongGear not in events.names and EventName.parkBrake not in events.names)
+    rising = (selected and not self.selected_prev) or boot_ready
     falling = not selected and self.selected_prev
     self.selected_prev = selected
+    if boot_ready or not selected:
+      self.boot_enable_pending = False
 
     self.events.clear()
     for name in events.names:
