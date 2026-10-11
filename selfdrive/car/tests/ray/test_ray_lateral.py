@@ -125,12 +125,15 @@ def test_longitudinal_events_do_not_disengage_or_enable_steering(name):
     assert update(s, False, name) == (False, False)
 
 
-def test_restart_with_old_on_selection_requires_a_new_off_on_cycle():
+def test_boot_selection_engages_once_when_healthy():
   s = lateral.RayLateralState()
-  for _ in range(10):
-    assert update(s, True) == (False, False)
-  assert update(s, False) == (False, False)
+  assert update(s, True, 'wrongGear') == (False, False)
   assert update(s, True) == (True, True)
+  for _ in range(10):
+    assert update(s, True) == (True, True)
+  assert update(s, False) == (False, False)
+  for _ in range(10):
+    assert update(s, True) == (True, True)
 
 
 @pytest.mark.parametrize(
