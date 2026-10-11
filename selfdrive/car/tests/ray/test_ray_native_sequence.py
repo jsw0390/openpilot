@@ -178,14 +178,14 @@ class TestNativeRaySequence:
     assert h.tick(button, False)[0]
     assert h.h.v_cruise_kph == expected
 
-  def test_first_lfa_press_after_availability_does_not_enable_cruise(self):
+  def test_boot_selects_lateral_and_first_lfa_press_turns_it_off(self):
     h = NativeHarness(False)
     h.h.cruise_state_available_last = False
     h.tick()
-    assert not h.h._lat_enabled
+    assert h.h._lat_enabled
     h.tick('lfaButton', True)
     enabled, _, events, request = h.tick('lfaButton', False)
-    assert h.h._lat_enabled
+    assert not h.h._lat_enabled
     assert not enabled
     assert request == 0
     assert not events.contains(ET.ENABLE)
