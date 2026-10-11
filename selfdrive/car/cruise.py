@@ -188,7 +188,10 @@ class VCruiseCarrot:
     self._cruise_cancel_state = False
     self._pause_auto_speed_up = False
     self._activate_cruise = 0
-    self._lat_enabled = not self.is_ray_ev and self.params.get_int("AutoEngage") > 0
+    # Ray EV uses an independent lateral switch. Select it at boot so the
+    # steering channel arms automatically once the vehicle is ready; the LFA
+    # button can still turn the selection off explicitly.
+    self._lat_enabled = self.is_ray_ev or self.params.get_int("AutoEngage") > 0
     self._v_cruise_kph_at_brake = 0
     self.cruise_state_available_last = False
     self._ray_ev_cancel_pressed_while_enabled = False
