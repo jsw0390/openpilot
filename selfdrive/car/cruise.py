@@ -4,7 +4,7 @@ import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
-from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph, ray_restore_lead_clear
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -228,6 +228,7 @@ class VCruiseCarrot:
     self.lead_radar = False
     self.lead_prob = 0.0
     self._ray_lead_data_valid = False
+    self._ray_curve_data_valid = False
     self._ray_lead_clear_frames = 0
     self.model_v_kph = 0
 
@@ -247,7 +248,8 @@ class VCruiseCarrot:
     self._ray_ipedal_active = False
     self._ray_ipedal_timer = 0
     self._ray_ipedal_cancel_repeat = 0
-    self._ray_curve_restore_kph = 0.0
+    self._ray_stock_restore_kph = 0.0
+    self._ray_driver_override_frames = 0
     self.vTurnSpeed = 0
     self.desiredSource = ""
 
@@ -324,12 +326,15 @@ class VCruiseCarrot:
       self.autoCruiseControl_cancel_timer = max(0, self.autoCruiseControl_cancel_timer - 1)
 
     CC = sm['carControl']
+    self._ray_curve_data_valid = (sm.alive['carrotMan'] and sm.all_checks(['carrotMan']) and
+                                  0 <= time.monotonic() - sm.recv_time['carrotMan'] <= 0.25)
     if sm.alive['carrotMan']:
       carrot_man = sm['carrotMan']
       self.nRoadLimitSpeed = carrot_man.nRoadLimitSpeed
       self.desiredSpeed = carrot_man.desiredSpeed
       self.vTurnSpeed = carrot_man.vTurnSpeed
       self.desiredSource = carrot_man.desiredSource
+      self._ray_curve_data_valid &= all(math.isfinite(v) for v in (self.desiredSpeed, self.vTurnSpeed))
       self.carrot_cmd_index = carrot_man.carrotCmdIndex
       self.carrot_cmd = carrot_man.carrotCmd
       self.carrot_arg = carrot_man.carrotArg
@@ -540,7 +545,7 @@ class VCruiseCarrot:
     return max(self.v_ego_kph_set, self._cruise_speed_min)
 
   def _ray_ev_confirmed_stock_speed(self, CS):
-    # carstate maps ELECT_GEAR.SLC_SET_SPEED here only while the factory
+    # carstate maps RAY_CRUISE.STOCK_SET_SPEED here only while the factory
     # cruise display is set. This is authoritative over the old local UI
     # value, which otherwise can diverge from the cluster.
     stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
@@ -550,6 +555,17 @@ class VCruiseCarrot:
 
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:
+      self._ray_driver_override_frames = max(0, self._ray_driver_override_frames - 1)
+      # Cancel the remembered automatic target on either edge, including
+      # paths that return before the assist update (held CANCEL and +/-).
+      if (self.button_cnt > 0 or CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or any(
+          b.type in (ButtonType.mainCruise, ButtonType.cancel, ButtonType.accelCruise, ButtonType.decelCruise)
+          for b in CS.buttonEvents)):
+        # Allow the physical setting to settle after the driver releases a
+        # button. A subsequent slowdown may then remember the new setting.
+        self._ray_driver_override_frames = 100
+        self._ray_stock_restore_kph = 0.0
+        self._ray_lead_clear_frames = 0
       if CS.brakePressed:
         self._cruise_cancel_state = True
         self._cruise_ready = False
@@ -893,22 +909,22 @@ class VCruiseCarrot:
     # and an absent source must never rewrite the driver's stock setpoint.
     if not ray_desired_speed_allowed(
         self.desiredSource, self.desiredSpeed, reference_kph, self.vTurnSpeed,
-        enabled=self._ray_ipedal_enabled(), disabled_result=False, allow_non_curve=False):
+        enabled=self._ray_ipedal_enabled() and self._ray_curve_data_valid, disabled_result=False, allow_non_curve=False):
       return None
     target_kph = float(self.desiredSpeed)
     return target_kph if 30.0 <= target_kph < reference_kph else None
 
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    # The stock controller owns the retained speed. This assistant only lowers
-    # that stock setting for a credible lead; it never brakes directly or
-    # raises the setting automatically.
+    # Adjust only the stock setting. Remember the confirmed value before an
+    # automatic slowdown and restore it only while stock cruise stays active.
     if (not self._ray_ipedal_enabled() or not self._ray_ev_main_on or self._cruise_cancel_state or
-        CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or self.v_ego_kph_set < 15):
+        self._ray_driver_override_frames > 0 or
+        CS.gasPressed or CS.brakePressed or CS.brakeHoldActive or not CS.canValid or
+        CS.gearShifter != GearShifter.drive or self.v_ego_kph_set < 15):
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
       self._ray_lead_clear_frames = 0
-      if CS.gasPressed or CS.brakePressed or not self._ray_ev_main_on:
-        self._ray_curve_restore_kph = 0.0
+      self._ray_stock_restore_kph = 0.0
       return v_cruise_kph
 
     stock_kph = CS.cruiseState.speed * 3.6
@@ -918,37 +934,47 @@ class VCruiseCarrot:
     if not stock_setpoint_known:
       self._ray_ipedal_active = False
       self._ray_lead_clear_frames = 0
+      self._ray_stock_restore_kph = 0.0
       return v_cruise_kph
 
     lead_target_kph = self._ray_lead_target_kph(CS, stock_kph) if self._ray_lead_data_valid else None
-    curve_reference_kph = self._ray_curve_restore_kph or stock_kph
+    curve_reference_kph = self._ray_stock_restore_kph or stock_kph
     curve_target_kph = self._ray_curve_target_kph(curve_reference_kph)
     targets = [target for target in (lead_target_kph, curve_target_kph) if target is not None]
     target_kph = min(targets) if targets else None
     need_decel = target_kph is not None and stock_kph > target_kph + 0.25
     # Ray's cluster uses step 7 for a physically active stock cruise even
     # though ACC_REQ is not asserted for this button-only integration.
-    cruise_active = CS.cruiseState.enabled or CC.enabled or getattr(CS, 'gearStep', 0) == 7
+    cruise_active = getattr(CS, 'gearStep', 0) == 7
 
     self._ray_ipedal_active = need_decel and cruise_active
     self._ray_ipedal_timer = self._ray_ipedal_timer + 1 if self._ray_ipedal_active else 0
-    self._ray_lead_clear_frames = 0
-    # The controller sends one SET/DECEL only if the reported stock setting
-    # is still above actual speed. It must observe each cluster update before
-    # it can send the next step.
+    if not cruise_active:
+      self._ray_stock_restore_kph = 0.0
+      self._ray_lead_clear_frames = 0
+      return v_cruise_kph
+
+    # Each +/- press is acknowledged by the cluster before the next step.
     if self._ray_ipedal_active and stock_kph > target_kph + 0.25:
-      if curve_target_kph is not None and self._ray_curve_restore_kph <= 0.0:
-        self._ray_curve_restore_kph = stock_kph
+      if self._ray_stock_restore_kph <= 0.0:
+        self._ray_stock_restore_kph = stock_kph
+      self._ray_lead_clear_frames = 0
       self._ray_ipedal_set_cruise(3, "Ray lead/curve: lower stock set speed")
-    elif (curve_target_kph is None and lead_target_kph is None and cruise_active and
-          self._ray_curve_restore_kph > stock_kph + 0.25):
-      # The curve signal has cleared and there is no close/closing lead.
-      # Restore only the driver's pre-curve setting through stock RES/ACCEL;
-      # no direct throttle or brake control is used.
-      self._ray_ipedal_set_cruise(4, "Ray curve clear: restore stock set speed")
-      return self._ray_curve_restore_kph
-    elif self._ray_curve_restore_kph > 0.0 and stock_kph >= self._ray_curve_restore_kph - 0.25:
-      self._ray_curve_restore_kph = 0.0
+    elif self._ray_stock_restore_kph > stock_kph + 0.25:
+      clear = (self._ray_lead_data_valid and self._ray_curve_data_valid and
+               curve_target_kph is None and lead_target_kph is None and
+               ray_restore_lead_clear(self.d_rel, self.v_rel, self.v_lead_kph, self._ray_stock_restore_kph,
+                                      self.rayVisionCruiseTFollowAdd, lead_prob=self.lead_prob,
+                                      lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb))
+      # Require two seconds of continuous clearance; a stale feed or a lead
+      # reappearing resets the dwell and stops further acceleration requests.
+      self._ray_lead_clear_frames = min(200, self._ray_lead_clear_frames + 1) if clear else 0
+      if self._ray_lead_clear_frames >= 200:
+        self._ray_ipedal_set_cruise(4, "Ray lead/curve clear: restore stock set speed")
+        return self._ray_stock_restore_kph
+    else:
+      self._ray_stock_restore_kph = 0.0
+      self._ray_lead_clear_frames = 0
     return v_cruise_kph
 
   def _ray_lead_target_kph(self, CS, cruise_kph):

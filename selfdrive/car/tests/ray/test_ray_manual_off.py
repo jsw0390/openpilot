@@ -94,6 +94,7 @@ class Fixture:
       v_lead_kph=0.0,
       lead_prob=0.0,
       _ray_lead_data_valid=True,
+      _ray_curve_data_valid=True,
       _ray_lead_clear_frames=0,
       lead_radar=False,
       xState=0,
@@ -107,7 +108,8 @@ class Fixture:
       _ray_ipedal_active=False,
       _ray_ipedal_timer=0,
       _ray_ipedal_cancel_repeat=0,
-      _ray_curve_restore_kph=0.0,
+      _ray_stock_restore_kph=0.0,
+      _ray_driver_override_frames=0,
       params=NS(get_bool=lambda key: False),
       messages=[],
     )
@@ -129,7 +131,10 @@ class TestRayManualOff:
       aEgo=0.0,
       gasPressed=False,
       brakePressed=False,
+      brakeHoldActive=False,
+      canValid=True,
       gearShifter='drive',
+      gearStep=7,
       leftBlinker=False,
       rightBlinker=False,
       steeringAngleDeg=0.0,
@@ -226,12 +231,20 @@ class TestRayManualOff:
     self.cs.cruiseState.enabled = False
     self.helper._ray_lead_data_valid = False
     self.helper._update_ray_ipedal_assist(self.cs, self.cc, 60)
-    assert abs(self.helper._ray_curve_restore_kph - 60.0) < 0.01
+    assert abs(self.helper._ray_stock_restore_kph - 60.0) < 0.01
     self.helper._activate_cruise = 0
     self.helper.desiredSource = ''
     self.helper.v_ego_kph_set = 40
     self.cs.vEgo = 40 / 3.6
     self.cs.cruiseState.speed = 40 / 3.6
+    # A missing lead feed must not be interpreted as a clear road.
+    for _ in range(250):
+      self.helper._update_ray_ipedal_assist(self.cs, self.cc, 60)
+      assert self.helper._activate_cruise == 0
+    self.helper._ray_lead_data_valid = True
+    for _ in range(199):
+      self.helper._update_ray_ipedal_assist(self.cs, self.cc, 60)
+      assert self.helper._activate_cruise == 0
     assert abs(self.helper._update_ray_ipedal_assist(self.cs, self.cc, 60) - 60.0) < 0.01
     assert self.helper._activate_cruise == 4
 

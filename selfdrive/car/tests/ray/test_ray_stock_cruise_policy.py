@@ -64,7 +64,7 @@ def test_confirmed_sharp_curve_can_request_stock_speed_reduction(source):
   assert h._activate_cruise == 3
 
 
-def test_lead_clear_never_restores_the_stock_setting():
+def test_no_increase_if_requested_slowdown_never_changed_stock_setting():
   b = slower_lead()
   b.helper.d_rel = 0
   assert step(b, 200) == [0] * 200

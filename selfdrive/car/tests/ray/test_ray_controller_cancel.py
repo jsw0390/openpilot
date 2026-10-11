@@ -64,7 +64,7 @@ class TestRayControllerCancel:
       is_metric=True,
       cruise_buttons=[0],
       out=NS(gearShifter='drive', vEgo=32 / 3.6, gearStep=0, activateCruise=0, brakePressed=False, brakeHoldActive=False,
-             gasPressed=False, buttonEvents=[], cruiseState=NS(speed=0.0, enabled=False)),
+             gasPressed=False, canValid=True, buttonEvents=[], cruiseState=NS(speed=0.0, enabled=False)),
     )
 
   def test_physical_cancel_blocks_pending_retry_with_old_enabled_feedback(self):

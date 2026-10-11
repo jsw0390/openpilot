@@ -1,5 +1,5 @@
 from cereal import car, log
-from openpilot.selfdrive.selfdrived.events import Events
+from openpilot.selfdrive.selfdrived.events import Events, ET
 from openpilot.selfdrive.selfdrived.state import StateMachine
 
 EventName = log.OnroadEvent.EventName
@@ -58,13 +58,14 @@ class RayLateralState:
     self.boot_enable_pending = True
 
   def update(self, selected, events, *, initialized, passive, can_valid, inputs_ok, monitoring_ok, panda_ok):
-    boot_ready = (selected and self.boot_enable_pending and initialized and not passive and can_valid and
-                  inputs_ok and monitoring_ok and panda_ok and
-                  EventName.wrongGear not in events.names and EventName.parkBrake not in events.names)
-    rising = (selected and not self.selected_prev) or boot_ready
+    # Before the first valid carState, latEnabled can still be its schema
+    # default. That is not an explicit driver OFF and must not consume boot.
+    if not can_valid:
+      selected = self.selected_prev
+    rising = selected and not self.selected_prev
     falling = not selected and self.selected_prev
     self.selected_prev = selected
-    if boot_ready or not selected:
+    if not selected:
       self.boot_enable_pending = False
 
     self.events.clear()
@@ -89,6 +90,15 @@ class RayLateralState:
       # including when no longitudinal controller is engaged.
       self.events.add(EventName.controlsMismatch)
 
+    # Wait for every entry gate, including temporary model/calibration faults.
+    # Consume the boot request only after engagement really succeeds. After
+    # that, faults still require a deliberate switch cycle to re-engage.
+    boot_ready = (selected and self.boot_enable_pending and initialized and not passive and can_valid and
+                  inputs_ok and monitoring_ok and panda_ok and
+                  not any(self.events.contains(kind) for kind in (ET.NO_ENTRY, ET.USER_DISABLE,
+                                                                  ET.IMMEDIATE_DISABLE, ET.SOFT_DISABLE)))
+    rising |= boot_ready
+
     if rising:
       self.events.add(EventName.buttonEnable)
     elif falling:
@@ -98,4 +108,6 @@ class RayLateralState:
     if passive or not initialized:
       self.state_machine.state = log.SelfdriveState.OpenpilotState.disabled
       self.enabled = self.active = False
+    if self.enabled:
+      self.boot_enable_pending = False
     return self.enabled, self.active

@@ -115,15 +115,18 @@ class NativeHarness:
   def update(self):
     class Inputs(dict):
       alive = dict.fromkeys(['carrotMan', 'longitudinalPlan', 'radarState', 'drivingModelData'], False)
-      recv_time = {'radarState': time.monotonic()}
+      recv_time = dict.fromkeys(['radarState', 'carrotMan'], time.monotonic())
 
       def all_checks(self, services):
-        return self.alive['radarState']
+        return all(self.alive.get(service, False) for service in services)
 
     inputs = Inputs(carControl=self.cc)
     if hasattr(self, 'lead'):
       inputs.alive = dict(inputs.alive, radarState=True)
       inputs['radarState'] = NS(leadOne=self.lead)
+    if hasattr(self, 'carrot'):
+      inputs.alive = dict(inputs.alive, carrotMan=True)
+      inputs['carrotMan'] = self.carrot
 
     # Include the generic interface's RES/SET edge, which previously bypassed
     # the Ray-specific activation check in CarSpecificEvents.
@@ -206,23 +209,21 @@ class TestNativeRaySequence:
     h.tick('accelCruise', False)
     assert h.h.v_cruise_kph == 48.0
 
-  def test_missing_stock_setpoint_pause_disables_until_explicit_driver_resume(self):
+  def test_missing_stock_setpoint_never_requests_automatic_buttons(self):
     h = NativeHarness()
     h.h.v_cruise_kph = 40.0
     h.lead = NS(status=True, dRel=10.0, vRel=-6.0, vLeadK=20 / 3.6, radar=False, modelProb=0.99)
     h.cs.cruiseState.speed = 0.0
+    h.cs.gearStep = 7
     h.cs.vEgo = 44.36 / 3.6
     h.cs.vEgoCluster = 47.0 / 3.6
-    enabled, _, events, request = h.tick()
-    assert (request) == (-1)
-    assert not (enabled)
-    assert h.h._cruise_cancel_state
-    h.cs.vEgo = 35.0 / 3.6
-    h.cs.vEgoCluster = 38.0 / 3.6
     for _ in range(1000):
-      enabled, _, _, request = h.tick()
-      assert not (enabled)
-      assert (request) <= (0)
+      assert h.tick()[-1] == 0
+    assert not h.h._ray_ipedal_active
+    assert h.h._ray_stock_restore_kph == 0
+    # Explicit driver pause/resume remains available with missing feedback.
+    assert not h.tick('cancel', True)[0]
+    assert not h.tick('cancel', False)[0]
     h.tick('cancel', True)
     for _ in range(10):
       h.tick()
@@ -312,3 +313,31 @@ class TestNativeRaySequence:
     assert not h.tick('mainCruise', False)[0]
     for _ in range(250):
       assert not h.tick()[0]
+
+
+@pytest.mark.parametrize('invalid_curve', [False, True])
+def test_native_restore_requires_fresh_clear_inputs_and_preserves_original_limit(invalid_curve):
+  h = NativeHarness()
+  h.cs.gearStep = 7
+  h.cs.vEgo = h.cs.vEgoCluster = 50 / 3.6
+  h.cs.cruiseState.speed = 60 / 3.6
+  h.lead = NS(status=True, dRel=25, vRel=-3, vLeadK=38 / 3.6, radar=False, modelProb=0.99)
+  h.carrot = NS(nRoadLimitSpeed=0, desiredSpeed=250, vTurnSpeed=0, desiredSource='',
+                carrotCmdIndex=0, carrotCmd='', carrotArg='')
+  assert h.tick()[-1] == 3
+  assert h.h._ray_stock_restore_kph == pytest.approx(60)
+  h.cs.cruiseState.speed = 40 / 3.6
+  h.cs.vEgo = h.cs.vEgoCluster = 40 / 3.6
+  h.lead.status = False
+  if invalid_curve:
+    h.carrot.vTurnSpeed = float('nan')
+    for _ in range(250):
+      assert h.tick()[-1] == 0
+    h.carrot.vTurnSpeed = 0
+  for _ in range(199):
+    assert h.tick()[-1] == 0
+  assert h.tick()[-1] == 4
+  assert h.h.v_cruise_kph == pytest.approx(60)
+  h.cs.cruiseState.speed = 60 / 3.6
+  assert h.tick()[-1] == 0
+  assert h.h._ray_stock_restore_kph == 0

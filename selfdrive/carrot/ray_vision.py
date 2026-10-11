@@ -1,9 +1,30 @@
+import math
+
+
 RAY_CURVE_SOURCES = {"atc", "atc2", "vturn", "model", "route"}
 RAY_VTURN_SHARP_KPH = 35.0
 RAY_CURVE_DROP_KPH = 12.0
 RAY_LEAD_BASE_T_FOLLOW = 1.0
 RAY_LEAD_T_FOLLOW_ADD_FACTOR = 0.5
 RAY_LEAD_MIN_DISTANCE_M = 8.0
+
+
+def ray_restore_lead_clear(lead_distance_m, lead_rel_speed_ms, lead_speed_kph, restore_kph,
+                           t_follow_add=0.0, *, lead_prob=1.0, lead_radar=False, min_prob=0.85):
+  """Require clearance at the speed being restored, not just at current speed.
+
+  The caller must first check the radar feed's validity and age. A slow lead
+  that we have settled behind must not trigger repeated acceleration cycles.
+  """
+  if not all(math.isfinite(v) for v in (lead_distance_m, lead_rel_speed_ms, lead_speed_kph, restore_kph, lead_prob)):
+    return False
+  if lead_distance_m == 0.0:
+    return True
+  if lead_distance_m < 0.0 or (not lead_radar and lead_prob < min_prob):
+    return False
+  follow_time = RAY_LEAD_BASE_T_FOLLOW + max(0.0, min(1.0, t_follow_add)) * RAY_LEAD_T_FOLLOW_ADD_FACTOR
+  clearance_m = max(RAY_LEAD_MIN_DISTANCE_M, restore_kph / 3.6 * follow_time) + 10.0
+  return lead_distance_m >= clearance_m and lead_rel_speed_ms >= 0.0 and lead_speed_kph >= restore_kph + 2.0
 
 
 def ray_desired_speed_allowed(source, desired_kph, base_cruise_kph, vturn_kph=0.0, *,

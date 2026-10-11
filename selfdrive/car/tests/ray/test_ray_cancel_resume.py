@@ -121,7 +121,9 @@ class TestRayPauseHysteresis:
     return requests
 
   def test_lead_target_above_ego_does_not_start_pause_cycle(self):
-    assert (self.run_frames()) == ([])
+    # The stock setpoint is still 60, above the lead target. Reducing it
+    # is allowed; toggling cruise off/on is not.
+    assert {request for _, request in self.run_frames()} == {3}
 
   def test_slower_lead_requests_stock_setpoint_reduction(self):
     self.h.v_lead_kph = 40.0
@@ -134,12 +136,16 @@ class TestRayPauseHysteresis:
     assert {request for _, request in self.run_frames(121)} == {3}
     self.h.v_ego_kph_set = 46.0
     self.b.cs.vEgo = 46 / 3.6
+    assert {request for _, request in self.run_frames(1000)} == {3}
+    self.b.cs.cruiseState.speed = 45 / 3.6
     assert self.run_frames(1000) == []
 
   def test_curve_without_lead_does_not_pause_stock_cruise(self):
     self.h.d_rel = 0.0
     self.h.desiredSource = 'atc'
     self.h.desiredSpeed = 45.0
+    assert {request for _, request in self.run_frames(1200)} == {3}
+    self.b.cs.cruiseState.speed = 45 / 3.6
     assert self.run_frames(1200) == []
 
   def test_overspeed_without_lead_does_not_pause_stock_cruise(self):

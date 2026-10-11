@@ -314,3 +314,33 @@ def test_lateral_only_retains_process_loss_audible_alert():
   assert scope['check_selfdrive_timeout_alert'](sm)
   sm['selfdriveState'].lateralEnabled = False
   assert not scope['check_selfdrive_timeout_alert'](sm)
+
+
+def test_boot_waits_for_real_carstate_instead_of_default_off():
+  s = lateral.RayLateralState()
+  assert update(s, False, initialized=False, can_valid=False) == (False, False)
+  assert s.boot_enable_pending
+  assert update(s, True, 'wrongGear', 'parkBrake') == (False, False)
+  assert s.boot_enable_pending
+  assert update(s, True) == (True, True)
+  assert not s.boot_enable_pending
+
+
+@pytest.mark.parametrize('blocker', ['steerTempUnavailable', 'vehicleSensorsInvalid', 'calibrationIncomplete', 'steerUnavailable'])
+def test_boot_keeps_request_until_all_entry_gates_clear(blocker):
+  s = lateral.RayLateralState()
+  for _ in range(20):
+    assert update(s, True, blocker) == (False, False)
+    assert s.boot_enable_pending
+  assert update(s, True) == (True, True)
+  assert not s.boot_enable_pending
+  assert update(s, True, 'controlsMismatch') == (False, False)
+  assert update(s, True) == (False, False)
+
+
+def test_explicit_off_while_waiting_cancels_boot_request():
+  s = lateral.RayLateralState()
+  update(s, True, 'wrongGear')
+  update(s, False, 'wrongGear')
+  assert not s.boot_enable_pending
+  assert update(s, False) == (False, False)

@@ -21,6 +21,7 @@ from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.ray_lateral import LONGITUDINAL_EVENTS, RayLateralState, panda_lateral_ready
+from openpilot.selfdrive.selfdrived.ray_lateral_alerts import RayLateralAlerts
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
 
@@ -136,6 +137,7 @@ class SelfdriveD:
     self.recalibrating_seen = False
     self.state_machine = StateMachine()
     self.ray_lateral = RayLateralState() if str(self.CP.carFingerprint) == "KIA_RAY_EV" else None
+    self.ray_lateral_alerts = RayLateralAlerts() if self.ray_lateral is not None else None
     self.car_state_fresh = False
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
@@ -515,6 +517,15 @@ class SelfdriveD:
       lateral_alerts = self.ray_lateral.events.create_alerts(lateral_sm.current_alert_types,
                         [self.CP, CS, self.sm, self.is_metric, lateral_sm.soft_disable_timer, pers])
       self.AM.add_many(self.sm.frame, lateral_alerts)
+      # Check commanded steering as well as the engagement state: controlsd
+      # can suspend torque while the independent state remains enabled.
+      command_fresh = (self.sm.all_checks(['carControl']) and
+                       0 <= time.monotonic() - self.sm.recv_time['carControl'] <= 0.2)
+      self.AM.add_many(self.sm.frame, self.ray_lateral_alerts.update(
+        CS, state_active=self.ray_lateral.active, selected=CS.latEnabled,
+        soft_disabling=lateral_sm.state == State.softDisabling,
+        command_active=self.sm['carControl'].latActive, command_fresh=command_fresh,
+        car_state_fresh=self.car_state_fresh and CS.canValid and not CS.canTimeout))
     self.AM.process_alerts(self.sm.frame, clear_event_types)
 
   def publish_selfdriveState(self, CS):
