@@ -120,6 +120,7 @@ class TestRayControllerCancel:
     assert self.h.make_spam_button(self.cc, self.cs) == Buttons.SET_DECEL
 
   def test_curve_restore_raises_only_to_requested_stock_speed(self):
+    self.cc.cruiseControl.resume = True
     self.cs.out.gearStep = 7
     self.cs.out.activateCruise = 4
     self.cs.out.vEgo = 40 / 3.6

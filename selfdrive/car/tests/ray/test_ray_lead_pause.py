@@ -227,7 +227,7 @@ def test_resume_scene_requires_fresh_agreement(problem):
   from types import SimpleNamespace as NS
 
   method = next(n for n in upper.source_class.body if isinstance(n, ast.FunctionDef) and n.name == 'update_v_cruise')
-  block = next(n for n in method.body if isinstance(n, ast.If) and 'self.rayVisionIPedalAssist == 3' in ast.unparse(n.test))
+  block = next(n for n in method.body if isinstance(n, ast.If) and 'self.rayVisionIPedalAssist >= 2' in ast.unparse(n.test))
 
   class Inputs(dict):
     alive = dict.fromkeys(['radarState', 'modelV2', 'carControl'], True)
@@ -250,7 +250,8 @@ def test_resume_scene_requires_fresh_agreement(problem):
     inputs.recv_time = dict(inputs.recv_time, **{service: 9.})
   code = compile(ast.fix_missing_locations(ast.Module(body=[block], type_ignores=[])), 'resume_scene', 'exec')
   exec(code, dict(self=h, sm=inputs, CS=cs, math=upper.math, time=NS(monotonic=lambda: 10.),
-                 ray_resume_scene_clear=upper.namespace['ray_resume_scene_clear'], CV=NS(MS_TO_KPH=3.6)))
+                 ray_resume_scene_clear=upper.namespace['ray_resume_scene_clear'],
+                 ray_lead_recovery_target_kph=upper.namespace['ray_lead_recovery_target_kph'], CV=NS(MS_TO_KPH=3.6)))
   assert h._ray_resume_scene_clear == (problem == 'fresh')
 
 

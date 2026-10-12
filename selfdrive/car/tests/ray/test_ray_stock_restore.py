@@ -1,5 +1,6 @@
 """Automatic speed recovery, driver priority and physical cluster feedback."""
 import pytest
+from types import SimpleNamespace as NS
 
 import test_ray_manual_off as upper
 import test_ray_controller_cancel as lower
@@ -44,6 +45,9 @@ def test_unresolved_lead_never_restores(distance, relative, speed, prob):
 def test_faster_lead_with_clearance_allows_restoration():
   b = slowed()
   b.helper.d_rel, b.helper.v_rel, b.helper.v_lead_kph, b.helper.lead_prob = 70, 2, 80, 0.99
+  radar = NS(leadOne=NS(status=True, dRel=70., vRel=2., vLeadK=80 / 3.6, modelProb=.99), leadTwo=NS(status=False))
+  model = NS(leadsV3=[NS(prob=.99, x=[70.])], action=NS(shouldStop=False, desiredVelocity=80 / 3.6))
+  b.helper._ray_lead_recovery_target_kph = upper.namespace['ray_lead_recovery_target_kph'](40 / 3.6, 40., 60., radar, model)
   assert step(b, 199) == [0] * 199
   assert step(b, 1) == [4]
 
@@ -118,6 +122,7 @@ def test_interruption_cannot_recover_from_stale_intent(signal):
 def test_controller_recovers_one_kph_at_a_time_to_original_setting():
   b = lower.TestRayControllerCancel()
   b.setup_method()
+  b.cc.cruiseControl.resume = True
   b.cs.out.gearStep, b.cs.out.activateCruise = 7, 4
   b.cs.out.cruiseState.speed = 40 / 3.6
   b.cc.hudControl.setSpeed = 43 / 3.6
@@ -149,6 +154,7 @@ def test_recovery_never_reenables_inactive_or_unknown_stock_cruise(gear_step):
 def test_direction_change_cannot_acknowledge_the_wrong_pulse():
   b = lower.TestRayControllerCancel()
   b.setup_method()
+  b.cc.cruiseControl.resume = True
   b.cs.out.gearStep, b.cs.out.activateCruise = 7, 3
   b.cs.out.vEgo = 50 / 3.6
   b.cs.out.cruiseState.speed = 60 / 3.6

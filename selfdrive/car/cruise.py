@@ -5,7 +5,8 @@ import numpy as np
 from cereal import car
 from openpilot.common.constants import CV
 from openpilot.selfdrive.carrot.ray_vision import (RayLeadPause, ray_desired_speed_allowed, ray_lead_pause_required,
-                                                ray_lead_target_speed_kph, ray_restore_lead_clear, ray_resume_scene_clear)
+                                                ray_lead_target_speed_kph, ray_restore_lead_clear, ray_resume_scene_clear,
+                                                ray_lead_recovery_target_kph)
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -233,6 +234,7 @@ class VCruiseCarrot:
     self._ray_lead_data_valid = False
     self._ray_curve_data_valid = False
     self._ray_lead_clear_frames = 0
+    self._ray_lead_recovery_target_kph = None
     self.model_v_kph = 0
 
     self._log_timer = 0
@@ -363,14 +365,19 @@ class VCruiseCarrot:
       self.model_v_kph = sm['drivingModelData'].action.desiredVelocity * CV.MS_TO_KPH
 
     self._ray_resume_scene_clear = False
-    if self.is_ray_ev and self.rayVisionIPedalAssist == 3:
+    self._ray_lead_recovery_target_kph = None
+    if self.is_ray_ev and self.rayVisionIPedalAssist >= 2:
       now = time.monotonic()
       feeds = ['radarState', 'modelV2', 'carControl']
       if all(sm.alive.get(s, False) and sm.all_checks([s]) and 0 <= now - sm.recv_time[s] <= 0.25 for s in feeds):
         radar, model = sm['radarState'], sm['modelV2']
-        reference = self._ray_lead_pause.stock_kph or self._ray_stock_restore_kph or CS.cruiseState.speed * CV.MS_TO_KPH
+        reference = self._ray_lead_pause.stock_kph or min(self._ray_stock_restore_kph, 100.) or CS.cruiseState.speed * CV.MS_TO_KPH
         self._ray_resume_scene_clear = ray_resume_scene_clear(
           CS.vEgo, reference, radar, model, min_prob=self.rayVisionCruiseLeadProb,
+          turning=CS.leftBlinker or CS.rightBlinker or abs(CS.steeringAngleDeg) >= 30)
+        self._ray_lead_recovery_target_kph = ray_lead_recovery_target_kph(
+          CS.vEgo, CS.cruiseState.speed * CV.MS_TO_KPH, self._ray_stock_restore_kph, radar, model,
+          min_prob=self.rayVisionCruiseLeadProb,
           turning=CS.leftBlinker or CS.rightBlinker or abs(CS.steeringAngleDeg) >= 30)
 
     self.v_cruise_kph_last = self.v_cruise_kph
@@ -1051,19 +1058,28 @@ class VCruiseCarrot:
         self._ray_stock_restore_kph = stock_kph
       self._ray_lead_clear_frames = 0
       self._ray_ipedal_set_cruise(3, "Ray lead/curve: lower stock set speed")
-    elif self._ray_stock_restore_kph > stock_kph + 0.25:
+    elif min(self._ray_stock_restore_kph, 100.) > stock_kph + 0.25:
+      restore_limit = min(self._ray_stock_restore_kph, 100.)
+      recovery_target = self._ray_lead_recovery_target_kph if self.d_rel > 0 else restore_limit
+      scene_clear = self.d_rel > 0 or (
+        (self.rayVisionIPedalAssist != 3 or self._ray_resume_scene_clear) and
+        ray_restore_lead_clear(self.d_rel, self.v_rel, self.v_lead_kph, restore_limit,
+                               self.rayVisionCruiseTFollowAdd, lead_prob=self.lead_prob,
+                               lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb))
+      curve_clear = not ray_desired_speed_allowed(
+        self.desiredSource, self.desiredSpeed, curve_reference_kph, self.vTurnSpeed,
+        disabled_result=False, allow_non_curve=False)
       clear = (self._ray_lead_data_valid and self._ray_curve_data_valid and
-               (self.rayVisionIPedalAssist != 3 or self._ray_resume_scene_clear) and
-               curve_target_kph is None and lead_target_kph is None and
-               ray_restore_lead_clear(self.d_rel, self.v_rel, self.v_lead_kph, self._ray_stock_restore_kph,
-                                      self.rayVisionCruiseTFollowAdd, lead_prob=self.lead_prob,
-                                      lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb))
+               scene_clear and curve_clear and curve_target_kph is None and lead_target_kph is None and
+               recovery_target is not None and stock_kph + .75 <= recovery_target <= restore_limit and
+               math.isfinite(recovery_target))
       # Require two seconds of continuous clearance; a stale feed or a lead
       # reappearing resets the dwell and stops further acceleration requests.
       self._ray_lead_clear_frames = min(200, self._ray_lead_clear_frames + 1) if clear else 0
       if self._ray_lead_clear_frames >= 200:
-        self._ray_ipedal_set_cruise(4, "Ray lead/curve clear: restore stock set speed")
-        return self._ray_stock_restore_kph
+        self._ray_ipedal_set_cruise(4, "Ray lead pulling away: recover stock speed" if self.d_rel > 0 else
+                                   "Ray lead/curve clear: restore stock set speed")
+        return recovery_target
     else:
       self._ray_stock_restore_kph = 0.0
       self._ray_lead_clear_frames = 0

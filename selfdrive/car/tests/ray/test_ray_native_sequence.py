@@ -376,6 +376,26 @@ def lead_pause_harness():
   return h
 
 
+def test_native_visible_lead_recovery_and_curve_priority():
+  h = NativeHarness()
+  h.h.params.values['RayVisionIPedalAssist'] = 3
+  h.cs.gearStep = 7
+  h.cs.vEgo = h.cs.vEgoCluster = 45 / 3.6
+  h.cs.cruiseState.speed = 45 / 3.6
+  h.h._ray_stock_restore_kph = 60.
+  h.lead = NS(status=True, dRel=50., vRel=2., vLeadK=52 / 3.6, radar=False, modelProb=.99)
+  h.model = NS(leadsV3=[NS(prob=.99,x=[50.])],action=NS(shouldStop=False,desiredVelocity=52 / 3.6))
+  h.carrot = NS(nRoadLimitSpeed=80,desiredSpeed=250.,vTurnSpeed=250.,desiredSource='',carrotCmdIndex=0,carrotCmd='',carrotArg='')
+  for _ in range(199):
+    assert h.tick()[-1] == 0
+  assert h.tick()[-1] == 4
+  assert h.h.v_cruise_kph == pytest.approx(52.)
+  assert h.h._ray_stock_restore_kph == pytest.approx(60.)
+  h.carrot.desiredSource, h.carrot.desiredSpeed = 'model', 35.
+  for _ in range(300):
+    assert h.tick()[-1] == 3
+
+
 def test_native_owned_lead_pause_and_corroborated_resume_use_normal_entry_checks():
   h = lead_pause_harness()
   h.lead.status = False

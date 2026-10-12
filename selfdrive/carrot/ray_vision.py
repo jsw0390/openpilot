@@ -54,14 +54,16 @@ def ray_resume_scene_clear(ego_speed_ms, reference_kph, radar, model, *, turning
 
 
 def ray_stock_resume_allowed(CS, *, passive, inputs_valid, panda_ok, events, monitor):
-  """Authorize a stock-button resume without enabling direct acceleration."""
+  """Authorize a stock-button resume/increase without enabling direct acceleration."""
   blocked = any(e.noEntry or e.userDisable or e.softDisable or e.immediateDisable or
                 str(e.name) in ('driverDistracted1', 'driverDistracted2', 'driverDistracted3',
                                 'driverUnresponsive1', 'driverUnresponsive2', 'driverUnresponsive3', 'tooDistracted')
                 for e in events)
+  requested = (CS.activateCruise == 2 and 0 <= CS.gearStep <= 4 and CS.vCruiseCluster <= 100) or (
+    CS.activateCruise == 4 and CS.gearStep == 7 and CS.vCruiseCluster < CS.vCruise <= 100)
   return bool(not passive and inputs_valid and panda_ok and not blocked and monitor.isActiveMode and monitor.awarenessStatus > 0 and
-              CS.activateCruise == 2 and CS.canValid and not CS.canTimeout and str(CS.gearShifter) == 'drive' and
-              0 <= CS.gearStep <= 4 and CS.vEgo * 3.6 >= 30 and 30 <= CS.vCruiseCluster <= 160 and
+              requested and CS.canValid and not CS.canTimeout and str(CS.gearShifter) == 'drive' and
+              CS.vEgo * 3.6 >= 30 and 30 <= CS.vCruiseCluster <= 160 and
               not CS.gasPressed and not CS.brakePressed and not CS.brakeHoldActive)
 
 
@@ -116,7 +118,7 @@ class RayLeadPause:
         return -1
       # Resume would immediately target the setting held at the pause. Limit
       # that first acceleration step; larger recovery requires driver input.
-      can_resume = clear and not need_pause and abs(self.stock_kph - ego_kph) <= 10
+      can_resume = clear and not need_pause and self.stock_kph <= 100 and abs(self.stock_kph - ego_kph) <= 10
       self.clear_frames = self.clear_frames + 1 if can_resume else 0
       if self.clear_frames >= 300:
         self.phase = 'resume_wait'
@@ -158,6 +160,32 @@ def ray_restore_lead_clear(lead_distance_m, lead_rel_speed_ms, lead_speed_kph, r
   follow_time = RAY_LEAD_BASE_T_FOLLOW + max(0.0, min(1.0, t_follow_add)) * RAY_LEAD_T_FOLLOW_ADD_FACTOR
   clearance_m = max(RAY_LEAD_MIN_DISTANCE_M, restore_kph / 3.6 * follow_time) + 10.0
   return lead_distance_m >= clearance_m and lead_rel_speed_ms >= 0.0 and lead_speed_kph >= restore_kph + 2.0
+
+
+def ray_lead_recovery_target_kph(ego_speed_ms, stock_kph, original_kph, radar, model, *, turning=False, min_prob=0.85):
+  """Recover an owned slowdown behind a visibly pulling-away lead; caller checks feed age."""
+  if (turning or not all(math.isfinite(v) for v in (ego_speed_ms, stock_kph, original_kph)) or
+      ego_speed_ms * 3.6 < 30 or not 30 <= stock_kph < min(original_kph, 100.) or
+      not radar.leadOne.status or not model.leadsV3 or model.action.shouldStop):
+    return None
+  lead = radar.leadOne
+  raw = model.leadsV3[0]
+  model_speed = float(model.action.desiredVelocity) * 3.6
+  if (not raw.x or not all(math.isfinite(v) for v in (raw.prob, raw.x[0], model_speed, lead.dRel, lead.vLeadK)) or
+      raw.prob < min_prob or abs(raw.x[0] - lead.dRel) > max(8., lead.dRel * .25)):
+    return None
+  target = min(float(round(max(0., lead.vLeadK * 3.6))), original_kph, 100., math.floor(model_speed + .001))
+  if target < stock_kph + .75:
+    return None
+  clearance = max(25., target / 3.6 * 2. + 5.)
+  for candidate in (radar.leadOne, radar.leadTwo):
+    if not candidate.status:
+      continue
+    if (not all(math.isfinite(v) for v in (candidate.dRel, candidate.vRel, candidate.vLeadK, candidate.modelProb)) or
+        candidate.modelProb < min_prob or candidate.dRel < clearance or candidate.vRel < .3 or
+        candidate.vLeadK * 3.6 < target - .5):
+      return None
+  return target
 
 
 def ray_desired_speed_allowed(source, desired_kph, base_cruise_kph, vturn_kph=0.0, *,

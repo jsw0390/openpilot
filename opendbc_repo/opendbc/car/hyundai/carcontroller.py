@@ -628,6 +628,10 @@ class CarController(CarControllerBase):
     # next one. Request 4 restores the driver's setting from before automatic
     # lead/curve deceleration; it must never resume paused stock cruise.
     if request in (3, 4):
+      # Positive steps require the same fresh scene/driver/safety grant as
+      # automatic resume. Losing that grant never emits an acceleration pulse.
+      if request == 4 and not CC.cruiseControl.resume:
+        return 0
       if stock_active is not True or not CS.out.canValid:
         self.ray_ev_set_adjust_wait_until = -1
         return 0
@@ -658,7 +662,7 @@ class CarController(CarControllerBase):
         return 0
       if direction < 0 and 30 <= stock_kph <= 160 and ego_kph > 10 and stock_kph >= ego_kph - 0.25:
         send_button = Buttons.SET_DECEL
-      elif direction > 0 and 30 <= stock_kph < restore_kph <= 160 and stock_kph + 1 <= restore_kph + 0.25:
+      elif direction > 0 and 30 <= stock_kph < restore_kph <= 100.01 and stock_kph + 1 <= min(restore_kph, 100.) + 0.25:
         send_button = Buttons.RES_ACCEL
       else:
         return 0

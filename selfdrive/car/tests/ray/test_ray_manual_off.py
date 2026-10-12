@@ -100,6 +100,7 @@ class Fixture:
       _ray_lead_data_valid=True,
       _ray_curve_data_valid=True,
       _ray_lead_clear_frames=0,
+      _ray_lead_recovery_target_kph=None,
       lead_radar=False,
       xState=0,
       aTarget=0.0,
