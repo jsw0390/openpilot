@@ -20,6 +20,8 @@ from openpilot.selfdrive.selfdrived.events import Events, ET, EVENTS, Alert, Ale
 from openpilot.common.params import UnknownKeyName
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
+from openpilot.selfdrive.selfdrived.ray_lateral import LONGITUDINAL_EVENTS, RayLateralState, panda_lateral_ready
+from openpilot.selfdrive.selfdrived.ray_lateral_alerts import RayLateralAlerts
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
 
@@ -134,6 +136,9 @@ class SelfdriveD:
     self.personality = self.read_personality_param()
     self.recalibrating_seen = False
     self.state_machine = StateMachine()
+    self.ray_lateral = RayLateralState() if str(self.CP.carFingerprint) == "KIA_RAY_EV" else None
+    self.ray_lateral_alerts = RayLateralAlerts() if self.ray_lateral is not None else None
+    self.car_state_fresh = False
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
     self.atc_type_last = ""
@@ -389,7 +394,7 @@ class SelfdriveD:
     if any((self.sm.frame - self.sm.recv_frame[s])*DT_CTRL > 10. for s in self.sensor_packets):
       self.events.add(EventName.sensorDataInvalid)
 
-    if not REPLAY:
+    if not REPLAY and self.ray_lateral is None:
       # Check for mismatch between openpilot and car's PCM
       #cruise_mismatch = CS.cruiseState.enabled and (not self.enabled or not self.CP.pcmCruise)
       cruise_mismatch = CS.cruiseState.enabled and not self.enabled
@@ -449,6 +454,7 @@ class SelfdriveD:
 
   def data_sample(self):
     car_state = messaging.recv_one(self.car_state_sock)
+    self.car_state_fresh = car_state is not None and car_state.valid and 0 <= time.monotonic() - car_state.logMonoTime * 1e-9 < 0.2
     CS = car_state.carState if car_state else self.CS_prev
 
     self.sm.update(0)
@@ -496,7 +502,8 @@ class SelfdriveD:
 
   def update_alerts(self, CS):
     clear_event_types = set()
-    if ET.WARNING not in self.state_machine.current_alert_types:
+    lateral_warning = self.ray_lateral is not None and ET.WARNING in self.ray_lateral.state_machine.current_alert_types
+    if ET.WARNING not in self.state_machine.current_alert_types and not lateral_warning:
       clear_event_types.add(ET.WARNING)
     if self.enabled:
       clear_event_types.add(ET.NO_ENTRY)
@@ -505,6 +512,28 @@ class SelfdriveD:
     alerts = self.events.create_alerts(self.state_machine.current_alert_types, [self.CP, CS, self.sm, self.is_metric,
                                                                                 self.state_machine.soft_disable_timer, pers])
     self.AM.add_many(self.sm.frame, alerts)
+    if self.ray_lateral is not None:
+      lateral_sm = self.ray_lateral.state_machine
+      lateral_alerts = self.ray_lateral.events.create_alerts(lateral_sm.current_alert_types,
+                        [self.CP, CS, self.sm, self.is_metric, lateral_sm.soft_disable_timer, pers])
+      self.AM.add_many(self.sm.frame, lateral_alerts)
+      # Check commanded steering as well as the engagement state: controlsd
+      # can suspend torque while the independent state remains enabled.
+      command_fresh = (self.sm.all_checks(['carControl']) and
+                       0 <= time.monotonic() - self.sm.recv_time['carControl'] <= 0.2)
+      self.AM.add_many(self.sm.frame, self.ray_lateral_alerts.update(
+        CS, state_active=self.ray_lateral.active, selected=CS.latEnabled,
+        soft_disabling=lateral_sm.state == State.softDisabling,
+        command_active=self.sm['carControl'].latActive, command_fresh=command_fresh,
+        car_state_fresh=self.car_state_fresh and CS.canValid and not CS.canTimeout,
+        disengage_reason="운전자 주시 경고로 조향 중단" if any(
+          name in self.events.names for name in (EventName.driverDistracted3, EventName.driverUnresponsive3, EventName.tooDistracted)) else ''))
+      if CS.logCarrot == 'Ray lead: pause not acknowledged' and CS.gearStep == 7 and CS.activateCruise < 0:
+        alert = Alert("직접 감속하세요", "크루즈 일시정지 응답이 없습니다",
+                      AlertStatus.critical, AlertSize.mid, AlertPriority.HIGH,
+                      VisualAlert.none, AudibleAlert.warningImmediate, 0.2)
+        alert.alert_type = 'rayStockPauseUnconfirmed'
+        self.AM.add_many(self.sm.frame, [alert])
     self.AM.process_alerts(self.sm.frame, clear_event_types)
 
   def publish_selfdriveState(self, CS):
@@ -514,6 +543,8 @@ class SelfdriveD:
     ss = ss_msg.selfdriveState
     ss.enabled = self.enabled
     ss.active = self.active
+    ss.lateralEnabled = self.ray_lateral.enabled if self.ray_lateral is not None else False
+    ss.lateralActive = self.ray_lateral.active if self.ray_lateral is not None else False
     ss.state = self.state_machine.state
     ss.engageable = not self.events.contains(ET.NO_ENTRY)
     ss.experimentalMode = self.experimental_mode
@@ -542,8 +573,24 @@ class SelfdriveD:
   def step(self):
     CS = self.data_sample()
     self.update_events(CS)
+    if self.ray_lateral is not None:
+      # Ray EV keeps the factory cruise controller in charge of longitudinal
+      # driving. Its physical cruise events must not engage the generic
+      # openpilot state machine, which would wait for panda controlsAllowed and
+      # immediately raise Controls Mismatch while stock cruise is operating.
+      self.events.events = [event for event in self.events.events if event not in LONGITUDINAL_EVENTS]
     if not self.CP.passive and self.initialized:
       self.enabled, self.active = self.state_machine.update(self.events)
+    if self.ray_lateral is not None:
+      # driverMonitoringState is ignored by the generic SubMaster health check
+      # in this fork, so explicitly require it for independent lateral control.
+      monitoring_ok = self.params.get_int("DisableDM") == 0 and all(
+        flags['driverMonitoringState'] for flags in (self.sm.alive, self.sm.valid, self.sm.freq_ok))
+      self.ray_lateral.update(CS.latEnabled, self.events,
+        initialized=self.initialized, passive=self.CP.passive,
+        can_valid=self.car_state_fresh and CS.canValid and not CS.canTimeout,
+        inputs_ok=self.sm.all_checks(), monitoring_ok=monitoring_ok,
+        panda_ok=panda_lateral_ready(self.CP, self.sm['pandaStates']))
     self.update_alerts(CS)
 
     self.publish_selfdriveState(CS)

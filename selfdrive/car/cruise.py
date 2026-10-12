@@ -1,9 +1,12 @@
 import math
+import time
 import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
-from openpilot.selfdrive.carrot.ray_vision import RAY_CURVE_SOURCES, ray_desired_speed_allowed, ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import (RayLeadPause, ray_desired_speed_allowed, ray_lead_pause_required,
+                                                ray_lead_target_speed_kph, ray_restore_lead_clear, ray_resume_scene_clear,
+                                                ray_lead_recovery_target_kph)
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -187,10 +190,22 @@ class VCruiseCarrot:
     self._cruise_cancel_state = False
     self._pause_auto_speed_up = False
     self._activate_cruise = 0
-    self._lat_enabled = self.params.get_int("AutoEngage") > 0
+    # Ray EV uses an independent lateral switch. Select it at boot so the
+    # steering channel arms automatically once the vehicle is ready; the LFA
+    # button can still turn the selection off explicitly.
+    self._lat_enabled = self.is_ray_ev or self.params.get_int("AutoEngage") > 0
     self._v_cruise_kph_at_brake = 0
     self.cruise_state_available_last = False
     self._ray_ev_cancel_pressed_while_enabled = False
+    self._ray_ev_cancel_pressed = False
+    self._ray_ev_cancel_long_pressed = False
+    self._ray_ev_main_pressed_while_enabled = False
+    # Resume/SET cannot synthesize MAIN. After restart, only confirmed factory
+    # engagement may establish that the driver has already armed stock cruise.
+    self._ray_ev_main_on = False
+    self._ray_ev_stock_sync_blocked = False
+    self._ray_ev_stock_active_frames = 0
+    self._ray_ev_lfa_pressed = False
 
     self._paddle_decel_active = False
     self.carrot_cruise_active = False
@@ -216,6 +231,10 @@ class VCruiseCarrot:
     self.v_lead_kph = 0
     self.lead_radar = False
     self.lead_prob = 0.0
+    self._ray_lead_data_valid = False
+    self._ray_curve_data_valid = False
+    self._ray_lead_clear_frames = 0
+    self._ray_lead_recovery_target_kph = None
     self.model_v_kph = 0
 
     self._log_timer = 0
@@ -234,6 +253,10 @@ class VCruiseCarrot:
     self._ray_ipedal_active = False
     self._ray_ipedal_timer = 0
     self._ray_ipedal_cancel_repeat = 0
+    self._ray_stock_restore_kph = 0.0
+    self._ray_lead_pause = RayLeadPause()
+    self._ray_resume_scene_clear = False
+    self._ray_driver_override_frames = 0
     self.vTurnSpeed = 0
     self.desiredSource = ""
 
@@ -310,12 +333,15 @@ class VCruiseCarrot:
       self.autoCruiseControl_cancel_timer = max(0, self.autoCruiseControl_cancel_timer - 1)
 
     CC = sm['carControl']
+    self._ray_curve_data_valid = (sm.alive['carrotMan'] and sm.all_checks(['carrotMan']) and
+                                  0 <= time.monotonic() - sm.recv_time['carrotMan'] <= 0.25)
     if sm.alive['carrotMan']:
       carrot_man = sm['carrotMan']
       self.nRoadLimitSpeed = carrot_man.nRoadLimitSpeed
       self.desiredSpeed = carrot_man.desiredSpeed
       self.vTurnSpeed = carrot_man.vTurnSpeed
       self.desiredSource = carrot_man.desiredSource
+      self._ray_curve_data_valid &= all(math.isfinite(v) for v in (self.desiredSpeed, self.vTurnSpeed))
       self.carrot_cmd_index = carrot_man.carrotCmdIndex
       self.carrot_cmd = carrot_man.carrotCmd
       self.carrot_arg = carrot_man.carrotArg
@@ -324,6 +350,8 @@ class VCruiseCarrot:
       self.xState = lp.xState
       self.trafficState = lp.trafficState
       self.aTarget = lp.aTarget
+    self._ray_lead_data_valid = (sm.alive['radarState'] and sm.all_checks(['radarState']) and
+                                 0 <= time.monotonic() - sm.recv_time['radarState'] <= 0.25)
     if sm.alive['radarState']:
       lead = sm['radarState'].leadOne
       self.d_rel = lead.dRel if lead.status else 0
@@ -331,8 +359,26 @@ class VCruiseCarrot:
       self.v_lead_kph = lead.vLeadK * CV.MS_TO_KPH if lead.status else 0
       self.lead_radar = bool(lead.radar) if lead.status else False
       self.lead_prob = lead.modelProb if lead.status else 0.0
+      if lead.status:
+        self._ray_lead_data_valid &= self.d_rel > 0 and all(math.isfinite(v) for v in (self.d_rel, self.v_rel, self.v_lead_kph, self.lead_prob))
     if sm.alive['drivingModelData']:
       self.model_v_kph = sm['drivingModelData'].action.desiredVelocity * CV.MS_TO_KPH
+
+    self._ray_resume_scene_clear = False
+    self._ray_lead_recovery_target_kph = None
+    if self.is_ray_ev and self.rayVisionIPedalAssist >= 2:
+      now = time.monotonic()
+      feeds = ['radarState', 'modelV2', 'carControl']
+      if all(sm.alive.get(s, False) and sm.all_checks([s]) and 0 <= now - sm.recv_time[s] <= 0.25 for s in feeds):
+        radar, model = sm['radarState'], sm['modelV2']
+        reference = self._ray_lead_pause.stock_kph or min(self._ray_stock_restore_kph, 100.) or CS.cruiseState.speed * CV.MS_TO_KPH
+        self._ray_resume_scene_clear = ray_resume_scene_clear(
+          CS.vEgo, reference, radar, model, min_prob=self.rayVisionCruiseLeadProb,
+          turning=CS.leftBlinker or CS.rightBlinker or abs(CS.steeringAngleDeg) >= 30)
+        self._ray_lead_recovery_target_kph = ray_lead_recovery_target_kph(
+          CS.vEgo, CS.cruiseState.speed * CV.MS_TO_KPH, self._ray_stock_restore_kph, radar, model,
+          min_prob=self.rayVisionCruiseLeadProb,
+          turning=CS.leftBlinker or CS.rightBlinker or abs(CS.steeringAngleDeg) >= 30)
 
     self.v_cruise_kph_last = self.v_cruise_kph
     self.is_metric = is_metric
@@ -345,7 +391,12 @@ class VCruiseCarrot:
     self._prepare_brake_gas(CS, CC)
     if CC.enabled:
       self._cruise_ready = False
-    v_cruise_kph = self._update_cruise_buttons(CS, CC, self.v_cruise_kph)
+    # Use the setpoint the Ray cluster is currently holding as the button
+    # base. This replaces a stale local maximum after the driver accelerates
+    # and presses SET, while still applying the physical button immediately.
+    ray_stock_kph = self._ray_ev_confirmed_stock_speed(CS) if self.is_ray_ev else None
+    button_base_kph = ray_stock_kph if ray_stock_kph is not None else self.v_cruise_kph
+    v_cruise_kph = self._update_cruise_buttons(CS, CC, button_base_kph)
 
     if self._activate_cruise > 0:
       #self.events.append(EventName.buttonEnable)
@@ -355,7 +406,7 @@ class VCruiseCarrot:
       self._cruise_ready = True if self._activate_cruise == -2 else False
 
     if CS.cruiseState.available:
-      if not self.cruise_state_available_last:
+      if not self.cruise_state_available_last and not self.is_ray_ev:
         self._lat_enabled = True
         v_cruise_kph = self.v_ego_kph_set
       if not self.CP.pcmCruise:
@@ -401,10 +452,14 @@ class VCruiseCarrot:
   def _prepare_buttons(self, CS, v_cruise_kph):
     button_kph = v_cruise_kph
     button_type = 0
-    buttonEvents = CS.buttonEvents
+    # Ray steering has its own switch latch, independent of cruise hold/release
+    # tracking and the configurable LFA long-press shortcuts used by other cars.
+    buttonEvents = [b for b in CS.buttonEvents if not (self.is_ray_ev and b.type == ButtonType.lfaButton)]
 
-    SPEED_UP_UNIT = self._cruise_speed_unit_basic
+    SPEED_UP_UNIT = 1 if self.is_ray_ev else self._cruise_speed_unit_basic
     SPEED_DOWN_UNIT = self._cruise_speed_unit if self._cruise_button_mode in [1, 2, 3] else self._cruise_speed_unit_basic
+    if self.is_ray_ev:
+      SPEED_DOWN_UNIT = 1
     V_CRUISE_DELTA = 10
     is_metric = self.is_metric
 
@@ -512,15 +567,116 @@ class VCruiseCarrot:
   def _ray_ev_set_speed(self):
     return max(self.v_ego_kph_set, self._cruise_speed_min)
 
+  def _ray_ev_confirmed_stock_speed(self, CS):
+    # carstate maps RAY_CRUISE.STOCK_SET_SPEED here only while the factory
+    # cruise display is set. This is authoritative over the old local UI
+    # value, which otherwise can diverge from the cluster.
+    stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
+    if CS.canValid and not getattr(CS, 'canTimeout', False) and CS.gearStep == 7 and 30 <= stock_kph <= 160:
+      return int(stock_kph + 0.5)
+    return None
+
+  def _ray_ev_stock_active(self, CS):
+    if not CS.canValid or getattr(CS, 'canTimeout', False):
+      return None
+    if self._ray_ev_confirmed_stock_speed(CS) is not None:
+      return True
+    return False if 0 <= CS.gearStep <= 4 else None
+
+  def _sync_ray_ev_stock_cruise(self, CS, stock_active):
+    # ACC_REQ/CC.enabled remain false during physical Ray stock cruise.
+    # Observe confirmed factory engagement without generating an enable or
+    # taking ownership of a pause. Manual OFF/brake must not be undone by
+    # delayed active feedback; only a new physical ON/SET/RES intent unblocks.
+    ready = (stock_active is True and not self._ray_ev_stock_sync_blocked and
+             self._ray_driver_override_frames == 0 and CS.gearShifter == GearShifter.drive and
+             not CS.gasPressed and not CS.brakePressed and not CS.brakeHoldActive)
+    self._ray_ev_stock_active_frames = min(20, self._ray_ev_stock_active_frames + 1) if ready else 0
+    if self._ray_ev_stock_active_frames >= 20:
+      if not self._ray_ev_main_on or self._cruise_cancel_state:
+        self._add_log("Ray stock cruise: synchronized")
+      self._ray_ev_main_on = True
+      self._cruise_cancel_state = False
+
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:
+      stock_active = self._ray_ev_stock_active(CS)
+      self._ray_driver_override_frames = max(0, self._ray_driver_override_frames - 1)
+      # Cancel the remembered automatic target on either edge, including
+      # paths that return before the assist update (held CANCEL and +/-).
+      if (self.button_cnt > 0 or CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or any(
+          b.type in (ButtonType.mainCruise, ButtonType.cancel, ButtonType.accelCruise, ButtonType.decelCruise)
+          for b in CS.buttonEvents)):
+        # Allow the physical setting to settle after the driver releases a
+        # button. A subsequent slowdown may then remember the new setting.
+        self._ray_driver_override_frames = 100
+        self._ray_stock_restore_kph = 0.0
+        self._ray_lead_clear_frames = 0
+        self._ray_lead_pause.reset()
+      if CS.brakePressed or CS.brakeHoldActive:
+        self._ray_ev_stock_sync_blocked = True
+        self._cruise_cancel_state = True
+        self._cruise_ready = False
       for b in CS.buttonEvents:
-        if b.type == ButtonType.cancel and b.pressed:
-          self._ray_ev_cancel_pressed_while_enabled = CC.enabled
+        if b.type == ButtonType.lfaButton:
+          if b.pressed and not self._ray_ev_lfa_pressed:
+            self._lat_enabled = not self._lat_enabled
+            self._add_log("Lateral " + ("selected" if self._lat_enabled else "off"))
+          self._ray_ev_lfa_pressed = b.pressed
+        elif b.type == ButtonType.cancel:
+          self._ray_ev_cancel_pressed = b.pressed
+          if b.pressed:
+            self._ray_ev_cancel_pressed_while_enabled = stock_active is not False
+            self._ray_ev_cancel_long_pressed = False
+        elif b.type == ButtonType.mainCruise and b.pressed:
+          self._ray_ev_main_pressed_while_enabled = stock_active is not False
+
+      self._sync_ray_ev_stock_cruise(CS, stock_active)
 
     button_kph, button_type, long_pressed = self._prepare_buttons(CS, v_cruise_kph)
 
+    if self.is_ray_ev and self._ray_ev_cancel_pressed:
+      # Driver cancel takes priority from the press edge through the hold.
+      # Do not let an automatic or remote enable request replace it.
+      self._ray_ev_cancel_long_pressed |= long_pressed
+      self._activate_cruise = -1
+      self._ray_ev_stock_sync_blocked = True
+      self._cruise_cancel_state = True
+      self._cruise_ready = False
+      self._paddle_decel_active = False
+      self.carrot_cruise_active = False
+      self._ray_ipedal_active = False
+      self._ray_ipedal_timer = 0
+      self._ray_ipedal_cancel_repeat = 0
+      return v_cruise_kph
+
     v_cruise_kph, button_type, long_pressed = self._carrot_command(v_cruise_kph, button_type, long_pressed)
+
+    if self.is_ray_ev and button_type in (ButtonType.accelCruise, ButtonType.decelCruise):
+      if CS.brakePressed or CS.brakeHoldActive or CS.gearShifter != GearShifter.drive or stock_active is None:
+        return v_cruise_kph
+      self._ray_ev_stock_sync_blocked = False
+      if CS.gasPressed or not self._ray_ev_main_on:
+        # The physical switch can engage already-armed factory cruise after
+        # a process restart. Wait for its feedback; do not synthesize MAIN.
+        return v_cruise_kph
+      if stock_active is False:
+        # Both directions SET the current speed after a pause. Only the
+        # separate pause/resume switch restores the retained setpoint.
+        self._activate_cruise = 2
+        self._cruise_cancel_state = False
+        self._cruise_ready = False
+        self._soft_hold_active = 0
+        self._paddle_decel_active = False
+        self._pause_auto_speed_up = True
+        self._v_cruise_kph_at_brake = 0
+        self._ray_ipedal_active = False
+        self._ray_ipedal_timer = 0
+        self._ray_ipedal_cancel_repeat = 0
+        return self._ray_ev_set_speed()
+      self._pause_auto_speed_up = True
+      self._v_cruise_kph_at_brake = 0
+      return button_kph
 
     if button_type in [ButtonType.accelCruise, ButtonType.decelCruise]:
       self._paddle_decel_active = False
@@ -594,7 +750,7 @@ class VCruiseCarrot:
           was_lat_enabled = self._lat_enabled
           self._lat_enabled = not self._lat_enabled
           self._add_log("Lateral " + ("enabled" if self._lat_enabled else "disabled"))
-          if self._lat_enabled and not was_lat_enabled:
+          if self._lat_enabled and not was_lat_enabled and not self.is_ray_ev:
             self._activate_cruise = 1
             self._cruise_ready = False
             self._add_log("Cruise on (lfaButton)")
@@ -608,8 +764,13 @@ class VCruiseCarrot:
         print("lfaButton")
       elif button_type == ButtonType.cancel:
         self._paddle_decel_active = False
-        if self.is_ray_ev and not CC.enabled and not self._ray_ev_cancel_pressed_while_enabled:
-          self._lat_enabled = True
+        if self.is_ray_ev:
+          self._ray_ev_stock_sync_blocked = (self._ray_ev_cancel_pressed_while_enabled or
+            self._ray_ev_cancel_long_pressed or CS.brakePressed or CS.brakeHoldActive or
+            CS.gearShifter != GearShifter.drive or stock_active is None)
+        if (self.is_ray_ev and self._ray_ev_main_on and not self._ray_ev_stock_sync_blocked and
+            not CS.brakePressed and not CS.gasPressed and CS.gearShifter == GearShifter.drive and
+            not self._ray_ev_cancel_pressed_while_enabled and not self._ray_ev_cancel_long_pressed):
           self._pause_auto_speed_up = True
           self._activate_cruise = 2
           self._cruise_ready = False
@@ -617,18 +778,51 @@ class VCruiseCarrot:
           v_cruise_kph = self._ray_ev_resume_speed(v_cruise_kph)
           self._add_log("Cruise on (pauseResume)")
         else:
-          if self._cancel_button_mode in [1]:
+          if not self.is_ray_ev and self._cancel_button_mode in [1]:
             self._lat_enabled = False
             self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
           self._cruise_cancel_state = True
+          if self.is_ray_ev:
+            self._activate_cruise = -1
+            self._cruise_ready = False
           #self._v_cruise_kph_at_brake = 0
         self._ray_ev_cancel_pressed_while_enabled = False
+        self._ray_ev_cancel_long_pressed = False
       elif button_type == ButtonType.mainCruise:
-        if CC.enabled:
+        # An automatic pause during the press must not turn an OFF request into
+        # an ON request when the driver releases the switch.
+        ray_main_was_enabled = self.is_ray_ev and self._ray_ev_main_pressed_while_enabled
+        if self.is_ray_ev:
+          self._ray_ev_main_pressed_while_enabled = False
+        if (ray_main_was_enabled if self.is_ray_ev else CC.enabled):
+          if self.is_ray_ev:
+            self._ray_ev_main_on = False
+            self._ray_ev_stock_sync_blocked = True
+            # Driver OFF must bypass auto-cruise gates and take priority over
+            # automatic pause/resume requests, including delayed CC feedback.
+            self._activate_cruise = -1
+            self._cruise_cancel_state = True
+            self._cruise_ready = False
+            self._paddle_decel_active = False
+            self.carrot_cruise_active = False
+            self._ray_ipedal_active = False
+            self._ray_ipedal_timer = 0
+            self._ray_ipedal_cancel_repeat = 0
+            self._add_log("Cruise off (mainCruise)")
+            return v_cruise_kph
           self._cruise_control(-1, -1, "Cruise off (mainCruise)")
           self._cruise_ready = True
         else:
-          self._lat_enabled = True
+          if self.is_ray_ev:
+            if CS.brakePressed or CS.brakeHoldActive or CS.gearShifter != GearShifter.drive or stock_active is None:
+              return v_cruise_kph
+            self._ray_ev_stock_sync_blocked = False
+            if CS.gasPressed:
+              return v_cruise_kph
+            self._ray_ev_main_on = True
+            self._cruise_cancel_state = False
+          if not self.is_ray_ev:
+            self._lat_enabled = True
           self._pause_auto_speed_up = True
           self._activate_cruise = 2 if self.is_ray_ev else 1
           self._cruise_ready = False
@@ -650,7 +844,8 @@ class VCruiseCarrot:
 
       elif button_type == ButtonType.cancel:
         self._cruise_cancel_state = True
-        self._lat_enabled = False
+        if not self.is_ray_ev:
+          self._lat_enabled = False
         self._paddle_decel_active = False
         #self.params.put_bool_nonblocking("ExperimentalMode", not self.params.get_bool("ExperimentalMode"))
         self._add_log("Lateral " + "enabled" if self._lat_enabled else "disabled")
@@ -728,6 +923,8 @@ class VCruiseCarrot:
     return v_cruise_kph
 
   def _cruise_control(self, enable, cancel_timer, reason):
+    if self.is_ray_ev and enable > 0 and (not self._ray_ev_main_on or enable == 1):
+      return
     if self._cruise_cancel_state: # and self._soft_hold_active != 2:
       self._add_log(reason + " > Cancel state")
     elif enable > 0 and self._cancel_timer > 0 and cancel_timer >= 0:
@@ -761,10 +958,7 @@ class VCruiseCarrot:
       return False, d_final
 
   def _ray_ipedal_enabled(self):
-    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist > 0
-
-  def _ray_curve_cruise_pause_enabled(self):
-    return self.is_ray_ev and self.rayVisionCruiseControl > 0
+    return self.is_ray_ev and self.rayVisionCruiseControl > 0 and self.rayVisionIPedalAssist >= 2
 
   def _ray_ipedal_set_cruise(self, enable, reason):
     self._activate_cruise = enable
@@ -774,74 +968,121 @@ class VCruiseCarrot:
       self._cruise_ready = enable == -2
     self._add_log(reason)
 
+  def _ray_curve_target_kph(self, reference_kph):
+    # Only use explicit curve/turn sources. Road limits, navigation estimates,
+    # and an absent source must never rewrite the driver's stock setpoint.
+    if not ray_desired_speed_allowed(
+        self.desiredSource, self.desiredSpeed, reference_kph, self.vTurnSpeed,
+        enabled=self._ray_ipedal_enabled() and self._ray_curve_data_valid, disabled_result=False, allow_non_curve=False):
+      return None
+    target_kph = float(self.desiredSpeed)
+    return target_kph if 30.0 <= target_kph < reference_kph else None
+
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    ray_ipedal_enabled = self._ray_ipedal_enabled()
-    ray_curve_pause_enabled = self._ray_curve_cruise_pause_enabled()
-    if not ray_ipedal_enabled and not ray_curve_pause_enabled:
+    # Mode 2 adjusts the stock setting. Mode 3 can additionally own a lead
+    # pause/resume; neither mode commands brake torque or regeneration level.
+    resume_pending = self._ray_lead_pause.phase == 'resume_wait'
+    if (not self._ray_ipedal_enabled() or not self._ray_ev_main_on or self._cruise_cancel_state or
+        self._ray_driver_override_frames > 0 or
+        CS.gasPressed or CS.brakePressed or CS.brakeHoldActive or not CS.canValid or
+        CS.gearShifter != GearShifter.drive or self.v_ego_kph_set < 15):
       self._ray_ipedal_active = False
       self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
+      self._ray_lead_clear_frames = 0
+      self._ray_stock_restore_kph = 0.0
+      self._ray_lead_pause.reset()
+      if resume_pending:
+        self._ray_ipedal_set_cruise(-1, 'Ray automatic resume withdrawn')
       return v_cruise_kph
 
-    v_ego_kph = self.v_ego_kph_set
-    target_kph = float(v_cruise_kph)
-    desired_allowed = ray_desired_speed_allowed(
-      self.desiredSource, self.desiredSpeed, v_cruise_kph, self.vTurnSpeed,
-      enabled=ray_ipedal_enabled or ray_curve_pause_enabled, disabled_result=False,
-    )
-    if desired_allowed and 0 < self.desiredSpeed < 200:
-      target_kph = min(target_kph, float(self.desiredSpeed))
-    lead_target_kph = self._ray_lead_target_kph(CS, target_kph)
-    if lead_target_kph is not None:
-      target_kph = min(target_kph, lead_target_kph)
-
-    if CS.gasPressed or CS.brakePressed or CS.gearShifter != GearShifter.drive or v_ego_kph < 15:
-      self._ray_ipedal_active = False
-      self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
-      return v_cruise_kph
-
-    speed_delta = v_ego_kph - target_kph
-    curve_source = desired_allowed and self.desiredSource in RAY_CURVE_SOURCES
-    lead_decel = self.rayVisionIPedalAssist >= 2 and lead_target_kph is not None
-    trigger_delta = max(3.0, float(self.rayVisionIPedalSpeedDelta))
-    resume_margin = max(1.0, float(self.rayVisionIPedalResumeMargin))
-    curve_trigger_delta = max(3.0, trigger_delta - 3.0)
-    need_curve_pause = ray_curve_pause_enabled and curve_source and speed_delta >= curve_trigger_delta
-    need_speed_decel = ray_ipedal_enabled and speed_delta >= trigger_delta
-    need_decel = need_speed_decel or need_curve_pause or lead_decel
-    ray_cruise_active = CS.cruiseState.enabled or (self.is_ray_ev and CC.enabled)
-
-    if not self._ray_ipedal_active:
-      if need_decel and ray_cruise_active:
-        self._ray_ipedal_active = True
-        self._ray_ipedal_timer = 0
-        self._ray_ipedal_cancel_repeat = 0
-        pause_reason = "curve pause" if need_curve_pause else "i-Pedal decel"
-        self._ray_ipedal_set_cruise(-2, f"Ray {pause_reason} {self.desiredSource}:{v_ego_kph:.0f}>{target_kph:.0f}")
-      return v_cruise_kph
-
-    self._ray_ipedal_timer += 1
-    self._ray_ipedal_cancel_repeat = max(0, self._ray_ipedal_cancel_repeat - 1)
-
-    min_off_frames = int(1.2 / 0.01)
-    max_off_frames = int(8.0 / 0.01)
-    ready_to_resume = speed_delta <= resume_margin or (self._ray_ipedal_timer >= max_off_frames and speed_delta < trigger_delta and not lead_decel)
-    if not ready_to_resume and self._activate_cruise > 0:
-      self._activate_cruise = 0
-
-    if CC.enabled and CS.cruiseState.enabled:
-      if self._ray_ipedal_cancel_repeat <= 0:
-        self._ray_ipedal_set_cruise(-2, f"Ray i-Pedal cancel {self.desiredSource}:{speed_delta:.0f}")
-        self._ray_ipedal_cancel_repeat = int(0.5 / 0.01)
-    elif ready_to_resume and self._ray_ipedal_timer >= min_off_frames:
-      self._ray_ipedal_active = False
-      self._ray_ipedal_timer = 0
-      self._ray_ipedal_cancel_repeat = 0
-      self._ray_ipedal_set_cruise(2, f"Ray i-Pedal resume {v_ego_kph:.0f}<={target_kph:.0f}")
+    stock_kph = CS.cruiseState.speed * 3.6
+    if self.rayVisionIPedalAssist == 3:
+      pause = self._ray_lead_pause
+      was_idle = pause.phase == 'idle'
+      step = getattr(CS, 'gearStep', -1)
+      stock_active = True if step == 7 else False if 0 <= step <= 4 else None
+      reference = self._ray_stock_restore_kph or pause.stock_kph or stock_kph
+      need_pause = self._ray_lead_data_valid and ray_lead_pause_required(
+        CS.vEgo, self.d_rel, self.v_rel, self.lead_prob, radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb)
+      clear = (self._ray_resume_scene_clear and self._ray_curve_data_valid and
+               not ray_desired_speed_allowed(self.desiredSource, self.desiredSpeed, reference, self.vTurnSpeed,
+                                             disabled_result=False, allow_non_curve=False))
+      request = pause.update(stock_active=stock_active, stock_kph=stock_kph, ego_kph=CS.vEgo * 3.6,
+                             need_pause=need_pause, clear=clear, valid=self._ray_lead_data_valid)
+      if was_idle and request < 0 and self._ray_stock_restore_kph <= 0:
+        self._ray_stock_restore_kph = stock_kph
+      if request or pause.phase != 'idle':
+        self._ray_lead_clear_frames = 0
+        self._ray_ipedal_active = pause.phase in ('pause_wait', 'paused', 'resume_wait')
+        if request:
+          reason = ('Ray lead: pause not acknowledged' if pause.phase == 'lockout' and stock_active else
+                    'Ray lead: pause stock cruise' if request < 0 else 'Ray scene clear: resume stock cruise')
+          self._ray_ipedal_set_cruise(request, reason)
+        if pause.phase == 'lockout':
+          self._ray_stock_restore_kph = 0.0
+        return v_cruise_kph
     else:
-      self._add_log(f"Ray i-Pedal active {v_ego_kph:.0f}>{target_kph:.0f}")
+      self._ray_lead_pause.reset()
+      if resume_pending:
+        self._ray_ipedal_set_cruise(-1, 'Ray automatic resume mode disabled')
+        return v_cruise_kph
+    stock_setpoint_known = 30 <= stock_kph <= min(160, v_cruise_kph + 1)
 
+    # Without confirmed stock-speed feedback, no virtual button is safe.
+    if not stock_setpoint_known:
+      self._ray_ipedal_active = False
+      self._ray_lead_clear_frames = 0
+      self._ray_stock_restore_kph = 0.0
+      return v_cruise_kph
+
+    lead_target_kph = self._ray_lead_target_kph(CS, stock_kph) if self._ray_lead_data_valid else None
+    curve_reference_kph = self._ray_stock_restore_kph or stock_kph
+    curve_target_kph = self._ray_curve_target_kph(curve_reference_kph)
+    targets = [target for target in (lead_target_kph, curve_target_kph) if target is not None]
+    target_kph = min(targets) if targets else None
+    need_decel = target_kph is not None and stock_kph > target_kph + 0.25
+    # Ray's cluster uses step 7 for a physically active stock cruise even
+    # though ACC_REQ is not asserted for this button-only integration.
+    cruise_active = getattr(CS, 'gearStep', 0) == 7
+
+    self._ray_ipedal_active = need_decel and cruise_active
+    self._ray_ipedal_timer = self._ray_ipedal_timer + 1 if self._ray_ipedal_active else 0
+    if not cruise_active:
+      self._ray_stock_restore_kph = 0.0
+      self._ray_lead_clear_frames = 0
+      return v_cruise_kph
+
+    # Each +/- press is acknowledged by the cluster before the next step.
+    if self._ray_ipedal_active and stock_kph > target_kph + 0.25:
+      if self._ray_stock_restore_kph <= 0.0:
+        self._ray_stock_restore_kph = stock_kph
+      self._ray_lead_clear_frames = 0
+      self._ray_ipedal_set_cruise(3, "Ray lead/curve: lower stock set speed")
+    elif min(self._ray_stock_restore_kph, 100.) > stock_kph + 0.25:
+      restore_limit = min(self._ray_stock_restore_kph, 100.)
+      recovery_target = self._ray_lead_recovery_target_kph if self.d_rel > 0 else restore_limit
+      scene_clear = self.d_rel > 0 or (
+        (self.rayVisionIPedalAssist != 3 or self._ray_resume_scene_clear) and
+        ray_restore_lead_clear(self.d_rel, self.v_rel, self.v_lead_kph, restore_limit,
+                               self.rayVisionCruiseTFollowAdd, lead_prob=self.lead_prob,
+                               lead_radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb))
+      curve_clear = not ray_desired_speed_allowed(
+        self.desiredSource, self.desiredSpeed, curve_reference_kph, self.vTurnSpeed,
+        disabled_result=False, allow_non_curve=False)
+      clear = (self._ray_lead_data_valid and self._ray_curve_data_valid and
+               scene_clear and curve_clear and curve_target_kph is None and lead_target_kph is None and
+               recovery_target is not None and stock_kph + .75 <= recovery_target <= restore_limit and
+               math.isfinite(recovery_target))
+      # Require two seconds of continuous clearance; a stale feed or a lead
+      # reappearing resets the dwell and stops further acceleration requests.
+      self._ray_lead_clear_frames = min(200, self._ray_lead_clear_frames + 1) if clear else 0
+      if self._ray_lead_clear_frames >= 200:
+        self._ray_ipedal_set_cruise(4, "Ray lead pulling away: recover stock speed" if self.d_rel > 0 else
+                                   "Ray lead/curve clear: restore stock set speed")
+        return recovery_target
+    else:
+      self._ray_stock_restore_kph = 0.0
+      self._ray_lead_clear_frames = 0
     return v_cruise_kph
 
   def _ray_lead_target_kph(self, CS, cruise_kph):
@@ -858,6 +1099,10 @@ class VCruiseCarrot:
     )
 
   def _update_cruise_state(self, CS, CC, v_cruise_kph):
+    if self.is_ray_ev:
+      # Only physical cruise buttons change the Ray driver setpoint.
+      # Pedals, navigation and ordinary speed error belong to stock cruise.
+      return v_cruise_kph
     if not CC.enabled:
       #self._pause_auto_speed_up = False
       if self._brake_pressed_count == -1 and self._soft_hold_active > 0:

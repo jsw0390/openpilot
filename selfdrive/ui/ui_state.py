@@ -106,7 +106,7 @@ class UIState:
 
   @property
   def engaged(self) -> bool:
-    return self.started and self.sm["selfdriveState"].enabled
+    return self.started and (self.sm["selfdriveState"].enabled or self.sm["selfdriveState"].lateralEnabled)
 
   def is_onroad(self) -> bool:
     return self.started
@@ -161,7 +161,7 @@ class UIState:
       if state in (log.SelfdriveState.OpenpilotState.preEnabled, log.SelfdriveState.OpenpilotState.overriding):
         self.status = UIStatus.OVERRIDE
       else:
-        self.status = UIStatus.ENGAGED if ss.enabled else UIStatus.DISENGAGED
+        self.status = UIStatus.ENGAGED if ss.enabled or ss.lateralEnabled else UIStatus.DISENGAGED
 
       self.lat_active = self.sm["carControl"].latActive
 

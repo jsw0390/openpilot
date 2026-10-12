@@ -82,7 +82,7 @@ def check_selfdrive_timeout_alert(sm):
   ss_missing = time.monotonic() - sm.recv_time['selfdriveState']
 
   if ss_missing > SELFDRIVE_STATE_TIMEOUT:
-    if sm['selfdriveState'].enabled and (ss_missing - SELFDRIVE_STATE_TIMEOUT) < 10:
+    if (sm['selfdriveState'].enabled or sm['selfdriveState'].lateralEnabled) and (ss_missing - SELFDRIVE_STATE_TIMEOUT) < 10:
       return True
 
   return False

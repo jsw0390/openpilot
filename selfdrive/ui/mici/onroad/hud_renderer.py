@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 from openpilot.common.constants import CV
 from openpilot.selfdrive.ui.mici.onroad.torque_bar import TorqueBar
+from openpilot.selfdrive.ui.onroad.lead_speed import lead_speed_text
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -290,6 +291,23 @@ class HudRenderer(Widget):
     self._torque_bar.render(rect)
 
     self._draw_set_speed(rect)
+    self._draw_lead_speed(rect)
+
+  def _draw_lead_speed(self, rect: rl.Rectangle) -> None:
+    # Keep takeover alerts unobstructed; this is independent of cruise engagement.
+    if not ui_state.started or not self._can_draw_top_icons or ui_state.show_radar_info <= 0:
+      return
+    text = lead_speed_text(ui_state.sm, ui_state.is_metric, ui_state.started_frame, time.monotonic())
+    if text is None:
+      return
+
+    box = rl.Rectangle(rect.x + rect.width - 150, rect.y + 10, 138, 66)
+    rl.draw_rectangle_rounded(box, 0.18, 8, rl.Color(0, 0, 0, 180))
+    cx = box.x + box.width / 2
+    draw_text_ui_style("앞차 추정", cx, box.y + 5, 18, rl.WHITE, font=self._font_display,
+                       border_width=0, shadow_offset=0, align="center_top", y_offset=0)
+    draw_text_ui_style(text, cx, box.y + 28, 26, rl.Color(150, 220, 255, 255), font=self._font_display,
+                       border_width=0, shadow_offset=0, align="center_top", y_offset=0)
 
   def _draw_steering_wheel(self, rect: rl.Rectangle) -> None:
     wheel_txt = self._txt_wheel_critical if self._show_wheel_critical else self._txt_wheel
