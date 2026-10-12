@@ -28,7 +28,8 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N
 from selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph
+from openpilot.selfdrive.carrot.ray_vision import ray_lead_target_speed_kph, ray_stock_resume_allowed
+from openpilot.selfdrive.selfdrived.ray_lateral import panda_lateral_ready
 
 from openpilot.selfdrive.carrot.carrot_controls import CarrotControls
 
@@ -53,7 +54,7 @@ class Controls:
     self.sm = messaging.SubMaster(['liveDelay', 'liveParameters', 'liveTorqueParameters', 'modelV2', 'selfdriveState',
                                    'liveCalibration', 'livePose', 'longitudinalPlan', 'carState', 'carOutput',
                                    'carrotMan', 'lateralPlan', 'radarState',
-                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance'], poll='selfdriveState')
+                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance', 'pandaStates'], poll='selfdriveState')
     self.pm = messaging.PubMaster(['carControl', 'controlsState'])
 
     self.steer_limited_by_safety = False
@@ -250,6 +251,14 @@ class Controls:
       CC.cruiseControl.resume = CC.enabled and CS.cruiseState.standstill and speeds[-1] > 0.1
       vCluRatio = CS.vCluRatio if CS.vCluRatio > 0.5 else 1.0
       setSpeed = speeds[-1] / vCluRatio
+
+    if str(self.CP.carFingerprint) == "KIA_RAY_EV":
+      feeds = ['carState', 'selfdriveState', 'driverMonitoringState', 'onroadEvents', 'radarState', 'modelV2', 'carrotMan', 'pandaStates']
+      inputs_valid = self.params.get_int('DisableDM') == 0 and self.sm.all_checks(feeds) and all(
+        0 <= time.monotonic() - self.sm.recv_time[s] <= (1.25 if s == 'onroadEvents' else 0.25) for s in feeds)
+      CC.cruiseControl.resume = ray_stock_resume_allowed(
+        CS, passive=self.CP.passive, inputs_valid=inputs_valid, panda_ok=panda_lateral_ready(self.CP, self.sm['pandaStates']),
+        events=self.sm['onroadEvents'], monitor=self.sm['driverMonitoringState'])
 
     hudControl = CC.hudControl
 

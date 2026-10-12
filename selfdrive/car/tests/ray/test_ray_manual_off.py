@@ -151,7 +151,7 @@ class TestRayManualOff:
   def tick(self, button=None, pressed=False):
     self.cs.buttonEvents = [] if button is None else [NS(type=button, pressed=pressed)]
     self.helper._activate_cruise = 0
-    result = self.helper._update_cruise_buttons(self.cs, self.cc, 31.0)
+    result = self.helper._update_cruise_buttons(self.cs, self.cc, getattr(self, 'base_kph', 31.0))
     return self.helper._activate_cruise, result
 
   def press_main(self):

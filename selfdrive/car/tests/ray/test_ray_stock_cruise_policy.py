@@ -71,12 +71,14 @@ def test_no_increase_if_requested_slowdown_never_changed_stock_setting():
   assert step(b, 1000) == [0] * 1000
 
 
-def test_slow_lead_stops_requesting_reduction_at_current_speed():
+def test_slow_lead_reduces_retained_setting_even_after_speeds_match():
   b = slower_lead()
   b.helper.v_ego_kph_set = b.helper.v_lead_kph = 38
   b.helper.v_rel = 0
   b.cs.vEgo = 38 / 3.6
-  assert step(b, 3000) == [0] * 3000
+  assert step(b, 300) == [3] * 300
+  b.cs.cruiseState.speed = 40 / 3.6
+  assert step(b, 300) == [0] * 300
 
 
 def test_uncertain_track_never_requests_stock_speed_changes():

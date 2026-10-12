@@ -10,7 +10,7 @@ class RayLateralAlerts:
     self.moving_prev = False
 
   def update(self, CS, *, state_active, selected, soft_disabling,
-             command_active, command_fresh, car_state_fresh):
+             command_active, command_fresh, car_state_fresh, disengage_reason=''):
     moving = (CS.gearShifter == car.CarState.GearShifter.drive and
               abs(CS.vEgo) > 0.1 and not CS.standstill) if car_state_fresh else self.moving_prev
     controlling = state_active and command_active and command_fresh and car_state_fresh
@@ -18,7 +18,7 @@ class RayLateralAlerts:
     if moving and self.controlling_prev and not controlling:
       alert = Alert(
         "핸들을 직접 조작하세요" if selected else "조향 보조 해제",
-        "조향 보조가 중단되었습니다",
+        disengage_reason or "조향 보조가 중단되었습니다",
         AlertStatus.critical if selected else AlertStatus.userPrompt, AlertSize.mid,
         Priority.HIGH if selected else Priority.MID, VisualAlert.steerRequired,
         AudibleAlert.warningImmediate if selected else AudibleAlert.prompt, 3.0)

@@ -19,9 +19,12 @@ def fixture(active=True):
   b.helper.rayVisionIPedalAssist = 3
   b.cs.vEgo = 56.42 / 3.6
   b.helper.v_ego_kph_set = 59
+  b.helper.v_cruise_kph = 60
+  b.base_kph = 60
   b.cs.gearStep = 7 if active else 3
   b.cs.cruiseState.speed = 60 / 3.6 if active else 0
   b.helper.d_rel, b.helper.v_rel, b.helper.lead_prob = 23.65, -0.989, 0.9996
+  b.helper.v_lead_kph = 56.42 - 0.989 * 3.6
   return b
 
 
@@ -40,15 +43,17 @@ def test_factory_resume_after_restart_rearms_assist_only_after_feedback(button):
   b.cs.gearStep = 7
   b.cs.cruiseState.speed = 60 / 3.6
   assert tick(b, 19) == [0] * 19
-  assert tick(b) == [-1]  # recorded closing lead now reaches the assist
+  assert tick(b) == [3]  # ordinary following lowers the setting first
   assert b.helper._ray_ev_main_on and not b.helper._cruise_cancel_state
 
 
-def test_recorded_60_kph_closing_lead_reaches_one_physical_pause():
+def test_recorded_60_kph_closing_lead_reduces_then_pauses_at_shorter_gap():
   b = fixture()
   requests = tick(b, 25)
   assert requests[:19] == [0] * 19
-  assert requests[19:] == [-1] * 6
+  assert requests[19:] == [3] * 6
+  b.helper.d_rel = 18
+  assert tick(b) == [-1]
   c = lower.TestRayControllerCancel()
   c.setup_method()
   c.cc.enabled = False
@@ -105,7 +110,7 @@ def test_confirmation_dwell_restarts_on_bad_can():
   assert tick(b) == [0]
   b.cs.canValid = True
   assert tick(b, 19) == [0] * 19
-  assert tick(b) == [-1]
+  assert tick(b) == [3]
 
 
 def test_main_uses_factory_state_at_press_despite_opposite_software_latch():
@@ -208,4 +213,4 @@ def test_physical_set_while_accelerating_waits_for_release_and_factory_ack(butto
   b.cs.gasPressed = False
   requests = tick(b, 125)
   assert 2 not in requests
-  assert -1 in requests  # only now may assist pause the already-active cruise
+  assert 3 in requests  # only now may assist change the already-active cruise

@@ -15,10 +15,54 @@ def ray_lead_pause_required(ego_speed_ms, distance_m, relative_ms, lead_prob, *,
     return False
   if ego_speed_ms < 15 / 3.6 or distance_m <= 0 or (not radar and lead_prob < min_prob):
     return False
-  # Start before the existing 1 km/h setting pulses can catch a slowing lead.
-  closing = relative_ms <= -3 / 3.6 and distance_m < max(40.0, ego_speed_ms * 3.0)
-  short_gap = distance_m < max(8.0, ego_speed_ms * 1.5) and relative_ms <= 0
+  # Ordinary following uses acknowledged -1 km/h steps first. Release cruise
+  # when the projected gap is short, or the closing time is already small.
+  closing_ms = max(0.0, -relative_ms)
+  projected_gap = distance_m - closing_ms * 2.0
+  closing = closing_ms >= 0.5 and (
+    projected_gap < max(8.0, ego_speed_ms * 1.2) or distance_m / closing_ms <= 4.0)
+  short_gap = distance_m < max(6.0, ego_speed_ms * 0.8) and relative_ms <= 0
   return closing or short_gap
+
+
+def ray_resume_scene_clear(ego_speed_ms, reference_kph, radar, model, *, turning=False, min_prob=0.85):
+  """Evaluate fresh inputs supplied by the caller; a dropout never grants resume."""
+  action = model.action
+  if (turning or action.shouldStop or not math.isfinite(action.desiredVelocity) or
+      action.desiredVelocity < ego_speed_ms or not model.leadsV3):
+    return False
+  if not radar.leadOne.status and not radar.leadTwo.status:
+    return all(math.isfinite(l.prob) and 0 <= l.prob < 0.2 for l in model.leadsV3)
+  if not (30 <= reference_kph <= 160 and radar.leadOne.status):
+    return False
+  # A visible lead must be pulling away at a speed above the retained setting.
+  # Require raw-model agreement, not just disappearance of the tracked lead.
+  raw_lead = model.leadsV3[0]
+  if (not math.isfinite(raw_lead.prob) or raw_lead.prob < min_prob or
+      not raw_lead.x or not math.isfinite(raw_lead.x[0]) or
+      abs(raw_lead.x[0] - radar.leadOne.dRel) > max(8.0, radar.leadOne.dRel * 0.25) or
+      action.desiredVelocity < reference_kph / 3.6):
+    return False
+  for lead in (radar.leadOne, radar.leadTwo):
+    if not lead.status:
+      continue
+    if (not all(math.isfinite(v) for v in (lead.dRel, lead.vRel, lead.vLeadK, lead.modelProb)) or
+        lead.modelProb < min_prob or lead.dRel < max(35.0, reference_kph / 3.6 * 2.5) or
+        lead.vRel < 1.0 / 3.6 or lead.vLeadK * 3.6 < reference_kph + 2):
+      return False
+  return True
+
+
+def ray_stock_resume_allowed(CS, *, passive, inputs_valid, panda_ok, events, monitor):
+  """Authorize a stock-button resume without enabling direct acceleration."""
+  blocked = any(e.noEntry or e.userDisable or e.softDisable or e.immediateDisable or
+                str(e.name) in ('driverDistracted1', 'driverDistracted2', 'driverDistracted3',
+                                'driverUnresponsive1', 'driverUnresponsive2', 'driverUnresponsive3', 'tooDistracted')
+                for e in events)
+  return bool(not passive and inputs_valid and panda_ok and not blocked and monitor.isActiveMode and monitor.awarenessStatus > 0 and
+              CS.activateCruise == 2 and CS.canValid and not CS.canTimeout and str(CS.gearShifter) == 'drive' and
+              0 <= CS.gearStep <= 4 and CS.vEgo * 3.6 >= 30 and 30 <= CS.vCruiseCluster <= 160 and
+              not CS.gasPressed and not CS.brakePressed and not CS.brakeHoldActive)
 
 
 class RayLeadPause:
@@ -152,9 +196,11 @@ def ray_lead_target_speed_kph(ego_speed_ms, lead_distance_m, lead_rel_speed_ms, 
 
   follow_time = RAY_LEAD_BASE_T_FOLLOW + max(0.0, min(1.0, t_follow_add)) * RAY_LEAD_T_FOLLOW_ADD_FACTOR
   desired_dist = max(RAY_LEAD_MIN_DISTANCE_M, ego_speed_ms * follow_time)
-  closing = lead_rel_speed_ms < -0.5 and lead_distance_m < max(35.0, ego_speed_ms * 2.2)
+  within_follow_range = lead_distance_m < max(35.0, ego_speed_ms * 3.5)
+  closing = lead_rel_speed_ms < -0.5 and within_follow_range
+  slower_setting = cruise_kph > lead_speed_kph + 3.0 and within_follow_range
   too_close = lead_distance_m < desired_dist
-  if not closing and not too_close:
+  if not closing and not too_close and not slower_setting:
     return None
 
   lead_speed_kph = max(0.0, float(lead_speed_kph or 0.0))

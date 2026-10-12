@@ -5,7 +5,7 @@ import numpy as np
 from cereal import car
 from openpilot.common.constants import CV
 from openpilot.selfdrive.carrot.ray_vision import (RayLeadPause, ray_desired_speed_allowed, ray_lead_pause_required,
-                                                ray_lead_target_speed_kph, ray_restore_lead_clear)
+                                                ray_lead_target_speed_kph, ray_restore_lead_clear, ray_resume_scene_clear)
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -368,14 +368,10 @@ class VCruiseCarrot:
       feeds = ['radarState', 'modelV2', 'carControl']
       if all(sm.alive.get(s, False) and sm.all_checks([s]) and 0 <= now - sm.recv_time[s] <= 0.25 for s in feeds):
         radar, model = sm['radarState'], sm['modelV2']
-        action = model.action
-        # An absent radar lead alone may be a tracking dropout. Require the
-        # raw model output to agree continuously before a resume.
-        self._ray_resume_scene_clear = (
-          not radar.leadOne.status and not radar.leadTwo.status and len(model.leadsV3) > 0 and
-          all(math.isfinite(l.prob) and 0 <= l.prob < 0.2 for l in model.leadsV3) and
-          not action.shouldStop and math.isfinite(action.desiredVelocity) and action.desiredVelocity >= CS.vEgo and
-          not CS.leftBlinker and not CS.rightBlinker and abs(CS.steeringAngleDeg) < 30)
+        reference = self._ray_lead_pause.stock_kph or self._ray_stock_restore_kph or CS.cruiseState.speed * CV.MS_TO_KPH
+        self._ray_resume_scene_clear = ray_resume_scene_clear(
+          CS.vEgo, reference, radar, model, min_prob=self.rayVisionCruiseLeadProb,
+          turning=CS.leftBlinker or CS.rightBlinker or abs(CS.steeringAngleDeg) >= 30)
 
     self.v_cruise_kph_last = self.v_cruise_kph
     self.is_metric = is_metric
@@ -1012,7 +1008,9 @@ class VCruiseCarrot:
         self._ray_lead_clear_frames = 0
         self._ray_ipedal_active = pause.phase in ('pause_wait', 'paused', 'resume_wait')
         if request:
-          self._ray_ipedal_set_cruise(request, 'Ray lead: pause stock cruise' if request < 0 else 'Ray scene clear: resume stock cruise')
+          reason = ('Ray lead: pause not acknowledged' if pause.phase == 'lockout' and stock_active else
+                    'Ray lead: pause stock cruise' if request < 0 else 'Ray scene clear: resume stock cruise')
+          self._ray_ipedal_set_cruise(request, reason)
         if pause.phase == 'lockout':
           self._ray_stock_restore_kph = 0.0
         return v_cruise_kph

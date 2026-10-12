@@ -58,6 +58,14 @@ def test_manual_off_is_audible():
   assert sample(monitor, selected=False, state_active=False)[0].audible_alert == AudibleAlert.prompt
 
 
+def test_terminal_driver_monitoring_reason_is_not_hidden_by_takeover_alert():
+  monitor = module.RayLateralAlerts()
+  sample(monitor)
+  alert = sample(monitor, state_active=False, disengage_reason='운전자 주시 경고로 조향 중단')[0]
+  assert alert.alert_text_2 == '운전자 주시 경고로 조향 중단'
+  assert alert.audible_alert == AudibleAlert.warningImmediate
+
+
 def test_park_stop_and_initial_wait_do_not_raise_false_takeover_alarms():
   monitor = module.RayLateralAlerts()
   assert sample(monitor, command_active=False) == []

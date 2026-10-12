@@ -684,7 +684,7 @@ class CarController(CarControllerBase):
       if request < 0 and not self.ray_ev_pause_sent:
         self.ray_ev_pause_sent = True
         return RAY_EV_ACTIVATE_BUTTON
-    elif (stock_active is False and CC.enabled and request >= 0 and
+    elif (stock_active is False and (CC.enabled or (request == 2 and CC.cruiseControl.resume)) and request >= 0 and
           self.frame <= self.ray_ev_pending_resume_until and CS.out.vEgo * CV.MS_TO_KPH > 10):
       self.ray_ev_pending_resume_until = -1
       self.activateCruise = 1

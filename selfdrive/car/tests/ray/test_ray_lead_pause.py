@@ -23,11 +23,15 @@ def paused():
 
 
 @pytest.mark.parametrize('speed,distance,relative,expected', [
-  (53.85, 32, -3.8, True),   # recorded run: target 57, measured deceleration near zero
-  (61.72, 42.45, -2.32, True),  # previous 2.2 s trigger did not request deceleration
+  (53.85, 32, -3.8, False),  # begin stock-setting reduction before a pause is necessary
+  (61.72, 42.45, -2.32, False),
+  (56.51, 45.0, -5.01, False),  # recorded premature pause: closing time almost 9 s
+  (53.85, 20, -3.8, True),
+  (60, 60, -16.67, True),  # distant stopped lead still needs early release
   (60, 60, -1, False),
   (50, 30, -0.6, False),
-  (50, 15, 0, True),
+  (50, 15, 0, False),
+  (50, 9, 0, True),
   (50, 15, 1, False),
   (50, 0, -5, False),
   (0, 5, -5, False),
@@ -103,7 +107,7 @@ def fixture():
   h = b.helper
   h.rayVisionIPedalAssist = 3
   h.v_ego_kph_set = 54
-  h.d_rel, h.v_rel, h.v_lead_kph, h.lead_prob = 32, -3.8, 40, 0.99
+  h.d_rel, h.v_rel, h.v_lead_kph, h.lead_prob = 20, -3.8, 40, 0.99
   b.cs.vEgo = 54 / 3.6
   b.cs.cruiseState.speed = 57 / 3.6
   return b
@@ -232,8 +236,9 @@ def test_resume_scene_requires_fresh_agreement(problem):
     def all_checks(self, services):
       return problem != 'invalid'
 
-  h = NS(is_ray_ev=True, rayVisionIPedalAssist=3, _ray_resume_scene_clear=False)
-  cs = NS(vEgo=15., leftBlinker=problem == 'turn', rightBlinker=False, steeringAngleDeg=0.)
+  h = NS(is_ray_ev=True, rayVisionIPedalAssist=3, _ray_resume_scene_clear=False,
+         _ray_lead_pause=NS(stock_kph=60), _ray_stock_restore_kph=0, rayVisionCruiseLeadProb=.85)
+  cs = NS(vEgo=15., leftBlinker=problem == 'turn', rightBlinker=False, steeringAngleDeg=0., cruiseState=NS(speed=0.))
   model = NS(leadsV3=[NS(prob=.05)], action=NS(shouldStop=problem == 'model_stop', desiredVelocity=16.))
   if problem == 'uncertain_model_lead': model.leadsV3[0].prob = .25
   if problem == 'empty_model': model.leadsV3 = []
@@ -244,7 +249,8 @@ def test_resume_scene_requires_fresh_agreement(problem):
     service = {'stale_radar': 'radarState', 'stale_model': 'modelV2', 'stale_controls': 'carControl'}[problem]
     inputs.recv_time = dict(inputs.recv_time, **{service: 9.})
   code = compile(ast.fix_missing_locations(ast.Module(body=[block], type_ignores=[])), 'resume_scene', 'exec')
-  exec(code, dict(self=h, sm=inputs, CS=cs, math=upper.math, time=NS(monotonic=lambda: 10.)))
+  exec(code, dict(self=h, sm=inputs, CS=cs, math=upper.math, time=NS(monotonic=lambda: 10.),
+                 ray_resume_scene_clear=upper.namespace['ray_resume_scene_clear'], CV=NS(MS_TO_KPH=3.6)))
   assert h._ray_resume_scene_clear == (problem == 'fresh')
 
 

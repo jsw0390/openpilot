@@ -525,7 +525,15 @@ class SelfdriveD:
         CS, state_active=self.ray_lateral.active, selected=CS.latEnabled,
         soft_disabling=lateral_sm.state == State.softDisabling,
         command_active=self.sm['carControl'].latActive, command_fresh=command_fresh,
-        car_state_fresh=self.car_state_fresh and CS.canValid and not CS.canTimeout))
+        car_state_fresh=self.car_state_fresh and CS.canValid and not CS.canTimeout,
+        disengage_reason="운전자 주시 경고로 조향 중단" if any(
+          name in self.events.names for name in (EventName.driverDistracted3, EventName.driverUnresponsive3, EventName.tooDistracted)) else ''))
+      if CS.logCarrot == 'Ray lead: pause not acknowledged' and CS.gearStep == 7 and CS.activateCruise < 0:
+        alert = Alert("직접 감속하세요", "크루즈 일시정지 응답이 없습니다",
+                      AlertStatus.critical, AlertSize.mid, AlertPriority.HIGH,
+                      VisualAlert.none, AudibleAlert.warningImmediate, 0.2)
+        alert.alert_type = 'rayStockPauseUnconfirmed'
+        self.AM.add_many(self.sm.frame, [alert])
     self.AM.process_alerts(self.sm.frame, clear_event_types)
 
   def publish_selfdriveState(self, CS):

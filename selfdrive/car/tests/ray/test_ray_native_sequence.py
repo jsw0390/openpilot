@@ -361,8 +361,8 @@ def lead_pause_harness():
   h.cs.vEgo = h.cs.vEgoCluster = 54 / 3.6
   h.cs.gearStep = 7
   h.cs.cruiseState.speed = 57 / 3.6
-  h.lead = NS(status=True, dRel=32, vRel=-3.8, vLeadK=40 / 3.6, radar=False, modelProb=.99)
-  h.model = NS(leadsV3=[NS(prob=.99)], action=NS(shouldStop=False, desiredVelocity=54 / 3.6))
+  h.lead = NS(status=True, dRel=20, vRel=-3.8, vLeadK=40 / 3.6, radar=False, modelProb=.99)
+  h.model = NS(leadsV3=[NS(prob=.99, x=[20])], action=NS(shouldStop=False, desiredVelocity=54 / 3.6))
   h.carrot = NS(nRoadLimitSpeed=80, desiredSpeed=250., vTurnSpeed=250., desiredSource='',
                 carrotCmdIndex=0, carrotCmd='', carrotArg='')
   h.update()
@@ -426,7 +426,7 @@ def test_native_pause_never_resumes_after_driver_intervention_or_unclear_scene(b
 
 
 @pytest.mark.parametrize('button', ['cancel', 'accelCruise', 'decelCruise'])
-def test_native_factory_feedback_reconciles_restart_then_closing_lead_pauses(button):
+def test_native_factory_feedback_reconciles_restart_then_reduces_before_pause(button):
   h = NativeHarness(False)
   h.h.params.values['RayVisionIPedalAssist'] = 3
   h.h._cruise_cancel_state = True
@@ -443,6 +443,8 @@ def test_native_factory_feedback_reconciles_restart_then_closing_lead_pauses(but
   h.cs.cruiseState.speed = 60 / 3.6
   for _ in range(19):
     assert h.tick()[-1] == 0
+  assert h.tick()[-1] == 3
+  h.lead.dRel = 18
   assert h.tick()[-1] == -1
   assert not h.cc.enabled
   assert h.cs.latEnabled
