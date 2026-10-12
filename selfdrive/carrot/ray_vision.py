@@ -189,22 +189,27 @@ def ray_desired_speed_allowed(source, desired_kph, base_cruise_kph, vturn_kph=0.
 def ray_lead_target_speed_kph(ego_speed_ms, lead_distance_m, lead_rel_speed_ms, lead_speed_kph,
                               cruise_kph, t_follow_add=0.0, *, lead_prob=1.0, lead_radar=False,
                               min_prob=0.85, min_target_kph=30.0):
-  if lead_distance_m <= 0.0 or ego_speed_ms < 1.0:
+  if not all(math.isfinite(v) for v in (ego_speed_ms, lead_distance_m, lead_rel_speed_ms, lead_speed_kph,
+                                       cruise_kph, t_follow_add, lead_prob, min_prob, min_target_kph)):
+    return None
+  if lead_distance_m <= 0.0 or ego_speed_ms < 1.0 or cruise_kph < min_target_kph:
     return None
   if not lead_radar and lead_prob < min_prob:
     return None
 
+  # Stock cruise accepts whole-km/h steps. Match the displayed lead estimate
+  # without the old +5/+2 margin; this path only lowers the driver's setting.
+  lead_target_kph = float(round(max(0.0, lead_speed_kph)))
   follow_time = RAY_LEAD_BASE_T_FOLLOW + max(0.0, min(1.0, t_follow_add)) * RAY_LEAD_T_FOLLOW_ADD_FACTOR
   desired_dist = max(RAY_LEAD_MIN_DISTANCE_M, ego_speed_ms * follow_time)
   within_follow_range = lead_distance_m < max(35.0, ego_speed_ms * 3.5)
   closing = lead_rel_speed_ms < -0.5 and within_follow_range
-  slower_setting = cruise_kph > lead_speed_kph + 3.0 and within_follow_range
+  slower_setting = cruise_kph > lead_target_kph + 0.25 and within_follow_range
   too_close = lead_distance_m < desired_dist
   if not closing and not too_close and not slower_setting:
     return None
 
-  lead_speed_kph = max(0.0, float(lead_speed_kph or 0.0))
-  target_kph = min(float(cruise_kph), lead_speed_kph + (2.0 if too_close else 5.0))
+  target_kph = min(float(cruise_kph), lead_target_kph)
   if too_close:
     shortfall = max(0.0, desired_dist - lead_distance_m)
     decel_margin_kph = min(10.0, 2.0 + shortfall * 0.45)

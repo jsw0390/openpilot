@@ -78,6 +78,8 @@ def test_slow_lead_reduces_retained_setting_even_after_speeds_match():
   b.cs.vEgo = 38 / 3.6
   assert step(b, 300) == [3] * 300
   b.cs.cruiseState.speed = 40 / 3.6
+  assert step(b, 300) == [3] * 300
+  b.cs.cruiseState.speed = 38 / 3.6
   assert step(b, 300) == [0] * 300
 
 

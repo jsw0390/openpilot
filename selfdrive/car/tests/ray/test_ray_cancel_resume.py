@@ -140,6 +140,8 @@ class TestRayPauseHysteresis:
     self.b.cs.vEgo = 46 / 3.6
     assert {request for _, request in self.run_frames(1000)} == {3}
     self.b.cs.cruiseState.speed = 45 / 3.6
+    assert {request for _, request in self.run_frames(1000)} == {3}
+    self.b.cs.cruiseState.speed = 40 / 3.6
     assert self.run_frames(1000) == []
 
   def test_curve_without_lead_does_not_pause_stock_cruise(self):
