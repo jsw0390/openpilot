@@ -1444,18 +1444,18 @@
     {
       "group": "크루즈",
       "name": "RayVisionIPedalAssist",
-      "title": "레이EV i-Pedal 보조(0)",
-      "descr": "0/1: 끔\n2: 앞차 접근 시 순정 크루즈 일시정지 보조. 직접 브레이크를 제어하지 않으며 감속은 차량 회생제동 설정에 따릅니다. 차량 설정속도를 확인할 수 없으면 운전자가 재개해야 합니다.",
+      "title": "레이EV 순정 크루즈 감속보조(0)",
+      "descr": "0/1: 끔\n2: 앞차·커브에 따라 순정 설정속도를 낮추고 전방이 비면 복구\n3: 추가로 앞차 접근 시 크루즈 일시정지. 직접 일시정지한 경우에만 전방이 3초간 비어 있고 30km/h 이상일 때 조건부 재개합니다. 속도 차이가 10km/h를 넘거나 15초가 지나면 수동 재개가 필요합니다. 페달·크루즈 버튼 조작은 자동 재개를 취소합니다. 감속은 차량 회생제동 단계에 따르며 자동 정지·직접 제동 기능이 아닙니다.",
       "egroup": "CRUISE",
-      "etitle": "Ray EV i-Pedal Assist(0)",
-      "edescr": "0/1: Off\n2: Pause stock cruise when closing on a lead. No direct brake control; deceleration depends on vehicle regeneration. Driver resume is required when the retained stock setpoint is unavailable.",
+      "etitle": "Ray EV Stock Cruise Deceleration Assist(0)",
+      "edescr": "0/1: Off\n2: Lower and restore the stock setting for leads and curves\n3: Also pause on a closing lead. Resume only our own confirmed pause after 3 seconds of clear perception, at 30 km/h or above, within 10 km/h of the retained setting and within 15 seconds. Pedal or cruise-button input cancels automatic resume. Deceleration depends on the selected regeneration level; no direct braking or guaranteed stop.",
       "min": 0,
-      "max": 2,
+      "max": 3,
       "default": 0,
       "unit": 1,
       "cgroup": "巡航设置",
-      "ctitle": "Ray EV i-Pedal 辅助 (0)",
-      "cdescr": "0/1: 关闭\n2: 接近前车时暂停原车巡航。不直接控制刹车，减速取决于车辆回收设置。无法确认原车设定速度时须由驾驶员恢复。"
+      "ctitle": "Ray EV 原车巡航减速辅助 (0)",
+      "cdescr": "0/1: 关闭\n2: 根据前车和弯道降低并恢复原车设定速度\n3: 接近前车时暂停巡航。仅恢复本功能主动暂停的巡航：前方连续3秒无车、车速至少30公里/小时、与保留设定相差不超过10公里/小时、暂停不超过15秒。踏板或巡航按钮操作取消自动恢复。减速依赖车辆回收挡位，不直接制动，不保证停车。"
     },
     {
       "group": "크루즈",

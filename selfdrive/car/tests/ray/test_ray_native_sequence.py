@@ -114,8 +114,9 @@ class NativeHarness:
 
   def update(self):
     class Inputs(dict):
-      alive = dict.fromkeys(['carrotMan', 'longitudinalPlan', 'radarState', 'drivingModelData'], False)
-      recv_time = dict.fromkeys(['radarState', 'carrotMan'], time.monotonic())
+      alive = dict.fromkeys(['carrotMan', 'longitudinalPlan', 'radarState', 'drivingModelData', 'modelV2'], False)
+      alive['carControl'] = True
+      recv_time = dict.fromkeys(['radarState', 'carrotMan', 'modelV2', 'carControl'], time.monotonic())
 
       def all_checks(self, services):
         return all(self.alive.get(service, False) for service in services)
@@ -123,7 +124,10 @@ class NativeHarness:
     inputs = Inputs(carControl=self.cc)
     if hasattr(self, 'lead'):
       inputs.alive = dict(inputs.alive, radarState=True)
-      inputs['radarState'] = NS(leadOne=self.lead)
+      inputs['radarState'] = NS(leadOne=self.lead, leadTwo=NS(status=False))
+    if hasattr(self, 'model'):
+      inputs.alive = dict(inputs.alive, modelV2=True)
+      inputs['modelV2'] = self.model
     if hasattr(self, 'carrot'):
       inputs.alive = dict(inputs.alive, carrotMan=True)
       inputs['carrotMan'] = self.carrot
@@ -341,3 +345,73 @@ def test_native_restore_requires_fresh_clear_inputs_and_preserves_original_limit
   h.cs.cruiseState.speed = 60 / 3.6
   assert h.tick()[-1] == 0
   assert h.h._ray_stock_restore_kph == 0
+
+
+def lead_pause_harness():
+  h = NativeHarness()
+  h.h.params.values['RayVisionIPedalAssist'] = 3
+  h.cs.vEgo = h.cs.vEgoCluster = 54 / 3.6
+  h.cs.gearStep = 7
+  h.cs.cruiseState.speed = 57 / 3.6
+  h.lead = NS(status=True, dRel=32, vRel=-3.8, vLeadK=40 / 3.6, radar=False, modelProb=.99)
+  h.model = NS(leadsV3=[NS(prob=.99)], action=NS(shouldStop=False, desiredVelocity=54 / 3.6))
+  h.carrot = NS(nRoadLimitSpeed=80, desiredSpeed=250., vTurnSpeed=250., desiredSource='',
+                carrotCmdIndex=0, carrotCmd='', carrotArg='')
+  h.update()
+  assert h.h._activate_cruise == -1
+  assert not h.cc.enabled
+  assert h.cs.latEnabled  # cruise cancellation must not deselect steering
+  h.cs.gearStep = 3
+  h.cs.cruiseState.speed = 0
+  h.update()
+  assert h.h._ray_lead_pause.phase == 'paused'
+  return h
+
+
+def test_native_owned_lead_pause_and_corroborated_resume_use_normal_entry_checks():
+  h = lead_pause_harness()
+  h.lead.status = False
+  for _ in range(310):
+    h.update()
+    assert h.h._activate_cruise == 0  # radar loss while model still sees lead
+  h.model.leadsV3[0].prob = .05
+  for _ in range(299):
+    h.update()
+    assert not h.cc.enabled
+  h.update()
+  assert h.h._activate_cruise == 2
+  assert h.cc.enabled
+  assert h.cs.latEnabled
+  h.cs.gearStep = 7
+  h.cs.cruiseState.speed = 57 / 3.6
+  h.update()
+  assert h.h._ray_lead_pause.phase == 'idle'
+  h.lead.status = True
+  h.update()
+  assert h.h._activate_cruise == -1
+  assert not h.cc.enabled
+
+
+@pytest.mark.parametrize('blocker', ['brake', 'gas', 'park', 'model_stop', 'blinker', 'low_speed', 'manual_cancel'])
+def test_native_pause_never_resumes_after_driver_intervention_or_unclear_scene(blocker):
+  h = lead_pause_harness()
+  h.lead.status = False
+  h.model.leadsV3[0].prob = .05
+  if blocker == 'brake':
+    h.cs.brakePressed = True
+  elif blocker == 'gas':
+    h.cs.gasPressed = True
+  elif blocker == 'park':
+    h.cs.gearShifter = 'park'
+  elif blocker == 'model_stop':
+    h.model.action.shouldStop = True
+  elif blocker == 'blinker':
+    h.cs.leftBlinker = True
+  elif blocker == 'low_speed':
+    h.cs.vEgo = h.cs.vEgoCluster = 25 / 3.6
+  else:
+    h.tick('cancel', True)
+    h.tick('cancel', False)
+  for _ in range(310):
+    h.update()
+    assert h.h._activate_cruise != 2

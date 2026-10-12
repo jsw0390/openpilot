@@ -9,6 +9,95 @@ RAY_LEAD_T_FOLLOW_ADD_FACTOR = 0.5
 RAY_LEAD_MIN_DISTANCE_M = 8.0
 
 
+def ray_lead_pause_required(ego_speed_ms, distance_m, relative_ms, lead_prob, *, radar=False, min_prob=0.85):
+  """Request release of stock cruise; this does not command braking or a stop."""
+  if not all(math.isfinite(v) for v in (ego_speed_ms, distance_m, relative_ms, lead_prob)):
+    return False
+  if ego_speed_ms < 15 / 3.6 or distance_m <= 0 or (not radar and lead_prob < min_prob):
+    return False
+  # Start before the existing 1 km/h setting pulses can catch a slowing lead.
+  closing = relative_ms <= -3 / 3.6 and distance_m < max(40.0, ego_speed_ms * 3.0)
+  short_gap = distance_m < max(8.0, ego_speed_ms * 1.5) and relative_ms <= 0
+  return closing or short_gap
+
+
+class RayLeadPause:
+  """Own only a pause initiated here, with bounded acknowledgement and resume.
+
+  Called at 100 Hz. No CAN I/O. A missing acknowledgement never retries the
+  vehicle's toggle switch. Driver input must reset ownership immediately.
+  """
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.phase = 'idle'
+    self.frames = 0
+    self.clear_frames = 0
+    self.stock_kph = 0.0
+
+  def update(self, *, stock_active, stock_kph, ego_kph, need_pause, clear, valid):
+    if not valid or stock_active is None or not math.isfinite(ego_kph):
+      self.phase = 'lockout' if self.phase != 'idle' else 'idle'
+      self.clear_frames = 0
+      return -1 if self.phase == 'lockout' else 0
+    if self.phase == 'lockout':
+      # Keep withdrawing a queued resume. A late stock acknowledgement must
+      # be paused once, not silently accepted after our timeout.
+      return -1
+
+    if self.phase == 'idle':
+      if not (need_pause and stock_active and 30 <= stock_kph <= 160):
+        return 0
+      self.stock_kph = stock_kph
+      self.phase = 'pause_wait'
+      self.frames = 0
+      self.clear_frames = 0
+
+    self.frames += 1
+    if self.phase == 'pause_wait':
+      if stock_active is False:
+        self.phase = 'paused'
+        self.frames = 0
+      elif self.frames > 100:
+        self.phase = 'lockout'
+      else:
+        return -1
+
+    if self.phase == 'paused':
+      # Never start from a stop or inherit someone else's later cruise enable.
+      if stock_active or ego_kph < 30 or self.frames > 1500:
+        self.phase = 'lockout'
+        return -1
+      # Resume would immediately target the setting held at the pause. Limit
+      # that first acceleration step; larger recovery requires driver input.
+      can_resume = clear and not need_pause and abs(self.stock_kph - ego_kph) <= 10
+      self.clear_frames = self.clear_frames + 1 if can_resume else 0
+      if self.clear_frames >= 300:
+        self.phase = 'resume_wait'
+        self.frames = 0
+        return 2
+
+    elif self.phase == 'resume_wait':
+      if need_pause or not clear or ego_kph < 30:
+        self.phase = 'pause_wait' if stock_active else 'paused'
+        self.frames = 0
+        self.clear_frames = 0
+        return -1  # also withdraw a queued resume before stock acknowledgement
+      if stock_active:
+        if not (30 <= stock_kph <= self.stock_kph + 1):
+          self.phase = 'lockout'
+          return -1
+        self.reset()
+      elif self.frames > 50:
+        self.phase = 'lockout'
+        return -1
+      else:
+        return 2
+    return 0
+
+
 def ray_restore_lead_clear(lead_distance_m, lead_rel_speed_ms, lead_speed_kph, restore_kph,
                            t_follow_add=0.0, *, lead_prob=1.0, lead_radar=False, min_prob=0.85):
   """Require clearance at the speed being restored, not just at current speed.

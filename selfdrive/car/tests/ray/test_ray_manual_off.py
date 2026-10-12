@@ -109,6 +109,8 @@ class Fixture:
       _ray_ipedal_timer=0,
       _ray_ipedal_cancel_repeat=0,
       _ray_stock_restore_kph=0.0,
+      _ray_lead_pause=namespace['RayLeadPause'](),
+      _ray_resume_scene_clear=False,
       _ray_driver_override_frames=0,
       params=NS(get_bool=lambda key: False),
       messages=[],

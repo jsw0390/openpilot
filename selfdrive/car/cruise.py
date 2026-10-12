@@ -4,7 +4,8 @@ import numpy as np
 
 from cereal import car
 from openpilot.common.constants import CV
-from openpilot.selfdrive.carrot.ray_vision import ray_desired_speed_allowed, ray_lead_target_speed_kph, ray_restore_lead_clear
+from openpilot.selfdrive.carrot.ray_vision import (RayLeadPause, ray_desired_speed_allowed, ray_lead_pause_required,
+                                                ray_lead_target_speed_kph, ray_restore_lead_clear)
 
 from opendbc.car import structs
 GearShifter = structs.CarState.GearShifter
@@ -249,6 +250,8 @@ class VCruiseCarrot:
     self._ray_ipedal_timer = 0
     self._ray_ipedal_cancel_repeat = 0
     self._ray_stock_restore_kph = 0.0
+    self._ray_lead_pause = RayLeadPause()
+    self._ray_resume_scene_clear = False
     self._ray_driver_override_frames = 0
     self.vTurnSpeed = 0
     self.desiredSource = ""
@@ -356,6 +359,21 @@ class VCruiseCarrot:
         self._ray_lead_data_valid &= self.d_rel > 0 and all(math.isfinite(v) for v in (self.d_rel, self.v_rel, self.v_lead_kph, self.lead_prob))
     if sm.alive['drivingModelData']:
       self.model_v_kph = sm['drivingModelData'].action.desiredVelocity * CV.MS_TO_KPH
+
+    self._ray_resume_scene_clear = False
+    if self.is_ray_ev and self.rayVisionIPedalAssist == 3:
+      now = time.monotonic()
+      feeds = ['radarState', 'modelV2', 'carControl']
+      if all(sm.alive.get(s, False) and sm.all_checks([s]) and 0 <= now - sm.recv_time[s] <= 0.25 for s in feeds):
+        radar, model = sm['radarState'], sm['modelV2']
+        action = model.action
+        # An absent radar lead alone may be a tracking dropout. Require the
+        # raw model output to agree continuously before a resume.
+        self._ray_resume_scene_clear = (
+          not radar.leadOne.status and not radar.leadTwo.status and len(model.leadsV3) > 0 and
+          all(math.isfinite(l.prob) and 0 <= l.prob < 0.2 for l in model.leadsV3) and
+          not action.shouldStop and math.isfinite(action.desiredVelocity) and action.desiredVelocity >= CS.vEgo and
+          not CS.leftBlinker and not CS.rightBlinker and abs(CS.steeringAngleDeg) < 30)
 
     self.v_cruise_kph_last = self.v_cruise_kph
     self.is_metric = is_metric
@@ -566,6 +584,7 @@ class VCruiseCarrot:
         self._ray_driver_override_frames = 100
         self._ray_stock_restore_kph = 0.0
         self._ray_lead_clear_frames = 0
+        self._ray_lead_pause.reset()
       if CS.brakePressed:
         self._cruise_cancel_state = True
         self._cruise_ready = False
@@ -915,8 +934,9 @@ class VCruiseCarrot:
     return target_kph if 30.0 <= target_kph < reference_kph else None
 
   def _update_ray_ipedal_assist(self, CS, CC, v_cruise_kph):
-    # Adjust only the stock setting. Remember the confirmed value before an
-    # automatic slowdown and restore it only while stock cruise stays active.
+    # Mode 2 adjusts the stock setting. Mode 3 can additionally own a lead
+    # pause/resume; neither mode commands brake torque or regeneration level.
+    resume_pending = self._ray_lead_pause.phase == 'resume_wait'
     if (not self._ray_ipedal_enabled() or not self._ray_ev_main_on or self._cruise_cancel_state or
         self._ray_driver_override_frames > 0 or
         CS.gasPressed or CS.brakePressed or CS.brakeHoldActive or not CS.canValid or
@@ -925,9 +945,40 @@ class VCruiseCarrot:
       self._ray_ipedal_timer = 0
       self._ray_lead_clear_frames = 0
       self._ray_stock_restore_kph = 0.0
+      self._ray_lead_pause.reset()
+      if resume_pending:
+        self._ray_ipedal_set_cruise(-1, 'Ray automatic resume withdrawn')
       return v_cruise_kph
 
     stock_kph = CS.cruiseState.speed * 3.6
+    if self.rayVisionIPedalAssist == 3:
+      pause = self._ray_lead_pause
+      was_idle = pause.phase == 'idle'
+      step = getattr(CS, 'gearStep', -1)
+      stock_active = True if step == 7 else False if 0 <= step <= 4 else None
+      reference = self._ray_stock_restore_kph or pause.stock_kph or stock_kph
+      need_pause = self._ray_lead_data_valid and ray_lead_pause_required(
+        CS.vEgo, self.d_rel, self.v_rel, self.lead_prob, radar=self.lead_radar, min_prob=self.rayVisionCruiseLeadProb)
+      clear = (self._ray_resume_scene_clear and self._ray_curve_data_valid and
+               not ray_desired_speed_allowed(self.desiredSource, self.desiredSpeed, reference, self.vTurnSpeed,
+                                             disabled_result=False, allow_non_curve=False))
+      request = pause.update(stock_active=stock_active, stock_kph=stock_kph, ego_kph=CS.vEgo * 3.6,
+                             need_pause=need_pause, clear=clear, valid=self._ray_lead_data_valid)
+      if was_idle and request < 0 and self._ray_stock_restore_kph <= 0:
+        self._ray_stock_restore_kph = stock_kph
+      if request or pause.phase != 'idle':
+        self._ray_lead_clear_frames = 0
+        self._ray_ipedal_active = pause.phase in ('pause_wait', 'paused', 'resume_wait')
+        if request:
+          self._ray_ipedal_set_cruise(request, 'Ray lead: pause stock cruise' if request < 0 else 'Ray scene clear: resume stock cruise')
+        if pause.phase == 'lockout':
+          self._ray_stock_restore_kph = 0.0
+        return v_cruise_kph
+    else:
+      self._ray_lead_pause.reset()
+      if resume_pending:
+        self._ray_ipedal_set_cruise(-1, 'Ray automatic resume mode disabled')
+        return v_cruise_kph
     stock_setpoint_known = 30 <= stock_kph <= min(160, v_cruise_kph + 1)
 
     # Without confirmed stock-speed feedback, no virtual button is safe.
@@ -962,6 +1013,7 @@ class VCruiseCarrot:
       self._ray_ipedal_set_cruise(3, "Ray lead/curve: lower stock set speed")
     elif self._ray_stock_restore_kph > stock_kph + 0.25:
       clear = (self._ray_lead_data_valid and self._ray_curve_data_valid and
+               (self.rayVisionIPedalAssist != 3 or self._ray_resume_scene_clear) and
                curve_target_kph is None and lead_target_kph is None and
                ray_restore_lead_clear(self.d_rel, self.v_rel, self.v_lead_kph, self._ray_stock_restore_kph,
                                       self.rayVisionCruiseTFollowAdd, lead_prob=self.lead_prob,

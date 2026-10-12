@@ -618,7 +618,7 @@ class CarController(CarControllerBase):
     driver_recent = self.frame - self.ray_ev_pause_resume_frame <= RAY_EV_DRIVER_PAUSE_RESUME_FRAMES
     if stock_active is False:
       self.ray_ev_pause_sent = False
-    if (driver_recent or CS.out.brakePressed or CS.out.brakeHoldActive or CS.out.gasPressed or
+    if (not CS.out.canValid or driver_recent or CS.out.brakePressed or CS.out.brakeHoldActive or CS.out.gasPressed or
         CS.out.gearShifter != GearShifter.drive):
       self.ray_ev_pending_resume_until = -1
       return 0
