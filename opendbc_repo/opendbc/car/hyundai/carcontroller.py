@@ -454,7 +454,8 @@ class CarController(CarControllerBase):
 
       # 20 Hz LFA MFA message
       if self.frame % 5 == 0 and self.CP.flags & HyundaiFlags.SEND_LFA.value:
-        can_sends.append(hyundaican.create_lfahda_mfc(self.packer, CC, self.blinking_signal))
+        lateral_selected = CS.out.latEnabled if self.CP.carFingerprint == CAR.KIA_RAY_EV else None
+        can_sends.append(hyundaican.create_lfahda_mfc(self.packer, CC, self.blinking_signal, lateral_selected))
 
       # 5 Hz ACC options
       if self.frame % 20 == 0 and direct_longitudinal:

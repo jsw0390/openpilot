@@ -122,10 +122,13 @@ def create_clu11(packer, frame, clu11, button, CP, main_button=False):
   return packer.make_can_msg("CLU11", bus, values)
 
 
-def create_lfahda_mfc(packer, CC, blinking_signal):
+def create_lfahda_mfc(packer, CC, blinking_signal, lateral_selected=None):
   activeCarrot = CC.hudControl.activeCarrot
+  # Ray's steering selection is independent of cruise. Only active control is green.
+  if lateral_selected is None:
+    lateral_selected = CC.enabled
   values = {
-    "LFA_Icon_State": 2 if CC.latActive else 1 if CC.enabled else 0,
+    "LFA_Icon_State": 2 if CC.latActive else 1 if lateral_selected else 0,
     #"HDA_Active": 1 if activeCarrot >= 2 else 0,
     #"HDA_Icon_State": 2 if activeCarrot == 3 and blinking_signal else 2 if activeCarrot >= 2 else 0,
     "HDA_Icon_State": 0 if activeCarrot == 3 and blinking_signal else 2 if activeCarrot >= 1 else 0,
