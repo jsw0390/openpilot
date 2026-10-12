@@ -236,18 +236,18 @@ class Car:
       v_cruise_kph = self.v_cruise_helper.v_cruise_kph
       v_cruise_cluster_kph = self.v_cruise_helper.v_cruise_cluster_kph
       if self.v_cruise_helper.is_ray_ev:
-        ray_ev_speed_valid = 0 < v_cruise_cluster_kph < V_CRUISE_UNSET
-        ray_ev_cruise_active_or_requested = (
-          self.sm['carControl'].enabled or CS.cruiseState.enabled or self.v_cruise_helper._activate_cruise > 0
-        )
-        if ray_ev_cruise_active_or_requested and ray_ev_speed_valid:
-          self.ray_ev_pause_v_cruise_kph = v_cruise_cluster_kph
-
-        if not self.sm['carControl'].enabled and not CS.cruiseState.enabled:
-          if 0 < self.ray_ev_pause_v_cruise_kph < V_CRUISE_UNSET:
-            v_cruise_kph = v_cruise_cluster_kph = self.ray_ev_pause_v_cruise_kph
-          else:
-            v_cruise_kph = v_cruise_cluster_kph = V_CRUISE_UNSET
+        stock_kph = self.v_cruise_helper._ray_ev_confirmed_stock_speed(CS)
+        if stock_kph is not None:
+          # Factory cruise is independent of CC.enabled/ACC_REQ on Ray.
+          # Cache only an acknowledged setting, never a predicted button value.
+          self.ray_ev_pause_v_cruise_kph = stock_kph
+          v_cruise_cluster_kph = stock_kph
+          if self.v_cruise_helper._activate_cruise != 4:
+            v_cruise_kph = stock_kph
+        else:
+          v_cruise_cluster_kph = self.ray_ev_pause_v_cruise_kph
+          if self.v_cruise_helper._activate_cruise <= 0:
+            v_cruise_kph = v_cruise_cluster_kph
     CS.logCarrot = self.v_cruise_helper.log
     CS.vCruise = float(v_cruise_kph)
     CS.vCruiseCluster = float(v_cruise_cluster_kph)

@@ -259,7 +259,9 @@ class Controls:
     lp = self.sm['longitudinalPlan']
     is_ray_ev = "KIA_RAY_EV" in str(self.CP.carFingerprint)
     if is_ray_ev:
-      base_cruise_kph = float(CS.vCruiseCluster)
+      # MAX shows the acknowledged factory setting. An owned restoration
+      # carries its separate upper target in vCruise until each +1 is confirmed.
+      base_cruise_kph = float(CS.vCruise if CS.activateCruise == 4 else CS.vCruiseCluster)
       if base_cruise_kph <= 0.0 or base_cruise_kph > 200.0:
         current_speed_kph = float(CS.vEgoCluster * CV.MS_TO_KPH)
         if current_speed_kph <= 0.0:

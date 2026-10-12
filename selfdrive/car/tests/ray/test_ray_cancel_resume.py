@@ -49,6 +49,8 @@ class TestRayCancelPriority:
   def test_same_release_stays_off_then_distinct_press_resumes(self):
     self.tick(BUTTONS.cancel, True)
     self.b.cc.enabled = False
+    self.b.cs.gearStep = 3
+    self.b.cs.cruiseState.speed = 0
     for _ in range(20):
       self.tick()
     request, names = self.tick(BUTTONS.cancel, False)

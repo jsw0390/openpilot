@@ -103,6 +103,8 @@ class NativeHarness:
     self.events = common.CarSpecificEvents(cp)
     self.cs = car.CarState.new_message(vEgo=32 / 3.6, vEgoCluster=32 / 3.6, gearShifter=gear, standstill=False, canValid=True)
     self.cs.cruiseState.available = True
+    self.cs.gearStep = 7 if enabled else 3
+    self.cs.cruiseState.speed = 31 / 3.6 if enabled else 0
     self.prev = car.CarState.new_message(**self.cs.to_dict())
     self.cc = car.CarControl.new_message(enabled=enabled)
     self.sm = StateMachine()
@@ -170,6 +172,7 @@ class TestNativeRaySequence:
     h.tick('mainCruise', True)
     assert h.tick('mainCruise', False)[0]
     assert h.h.v_cruise_kph == 40.0
+    h.cs.gearStep = 7
     if pause == 'brake':
       h.cs.brakePressed = True
       assert not h.tick()[0]
@@ -177,6 +180,8 @@ class TestNativeRaySequence:
     else:
       assert not h.tick('cancel', True)[0]
       assert not h.tick('cancel', False)[0]
+    h.cs.gearStep = 3
+    h.cs.cruiseState.speed = 0
     h.cs.vEgo = h.cs.vEgoCluster = 32 / 3.6
     for _ in range(100):
       assert not h.tick()[0]
@@ -228,6 +233,7 @@ class TestNativeRaySequence:
     # Explicit driver pause/resume remains available with missing feedback.
     assert not h.tick('cancel', True)[0]
     assert not h.tick('cancel', False)[0]
+    h.cs.gearStep = 3  # physical pause acknowledged before the next RES
     h.tick('cancel', True)
     for _ in range(10):
       h.tick()
@@ -264,6 +270,8 @@ class TestNativeRaySequence:
   def test_cancel_press_disables_and_same_release_stays_disabled(self):
     h = NativeHarness()
     assert not (h.tick('cancel', True)[0])
+    h.cs.gearStep = 3
+    h.cs.cruiseState.speed = 0
     for _ in range(20):
       assert not (h.tick()[0])
     assert not (h.tick('cancel', False)[0])
@@ -415,3 +423,30 @@ def test_native_pause_never_resumes_after_driver_intervention_or_unclear_scene(b
   for _ in range(310):
     h.update()
     assert h.h._activate_cruise != 2
+
+
+@pytest.mark.parametrize('button', ['cancel', 'accelCruise', 'decelCruise'])
+def test_native_factory_feedback_reconciles_restart_then_closing_lead_pauses(button):
+  h = NativeHarness(False)
+  h.h.params.values['RayVisionIPedalAssist'] = 3
+  h.h._cruise_cancel_state = True
+  h.h._ray_ev_stock_sync_blocked = True
+  h.cs.vEgo = 56.42 / 3.6
+  h.cs.vEgoCluster = 59.375 / 3.6
+  h.lead = NS(status=True, dRel=23.65, vRel=-.989, vLeadK=52.9 / 3.6, radar=False, modelProb=.9996)
+  h.tick(button, True)
+  assert h.tick(button, False)[-1] <= 0
+  for _ in range(120):
+    assert h.tick()[-1] == 0
+  assert not h.h._ray_ev_main_on
+  h.cs.gearStep = 7
+  h.cs.cruiseState.speed = 60 / 3.6
+  for _ in range(19):
+    assert h.tick()[-1] == 0
+  assert h.tick()[-1] == -1
+  assert not h.cc.enabled
+  assert h.cs.latEnabled
+  h.cs.gearStep = 3
+  h.cs.cruiseState.speed = 0
+  assert h.tick()[-1] == 0
+  assert h.h._ray_lead_pause.phase == 'paused'

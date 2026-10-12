@@ -199,9 +199,11 @@ class VCruiseCarrot:
     self._ray_ev_cancel_pressed = False
     self._ray_ev_cancel_long_pressed = False
     self._ray_ev_main_pressed_while_enabled = False
-    # A resume/set input must never substitute for the driver's MAIN switch.
-    # Keep this across a brake/cancel pause, but never across process restarts.
+    # Resume/SET cannot synthesize MAIN. After restart, only confirmed factory
+    # engagement may establish that the driver has already armed stock cruise.
     self._ray_ev_main_on = False
+    self._ray_ev_stock_sync_blocked = False
+    self._ray_ev_stock_active_frames = 0
     self._ray_ev_lfa_pressed = False
 
     self._paddle_decel_active = False
@@ -567,12 +569,35 @@ class VCruiseCarrot:
     # cruise display is set. This is authoritative over the old local UI
     # value, which otherwise can diverge from the cluster.
     stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
-    if 30 <= stock_kph <= 160:
+    if CS.canValid and not getattr(CS, 'canTimeout', False) and CS.gearStep == 7 and 30 <= stock_kph <= 160:
       return int(stock_kph + 0.5)
     return None
 
+  def _ray_ev_stock_active(self, CS):
+    if not CS.canValid or getattr(CS, 'canTimeout', False):
+      return None
+    if self._ray_ev_confirmed_stock_speed(CS) is not None:
+      return True
+    return False if 0 <= CS.gearStep <= 4 else None
+
+  def _sync_ray_ev_stock_cruise(self, CS, stock_active):
+    # ACC_REQ/CC.enabled remain false during physical Ray stock cruise.
+    # Observe confirmed factory engagement without generating an enable or
+    # taking ownership of a pause. Manual OFF/brake must not be undone by
+    # delayed active feedback; only a new physical ON/SET/RES intent unblocks.
+    ready = (stock_active is True and not self._ray_ev_stock_sync_blocked and
+             self._ray_driver_override_frames == 0 and CS.gearShifter == GearShifter.drive and
+             not CS.gasPressed and not CS.brakePressed and not CS.brakeHoldActive)
+    self._ray_ev_stock_active_frames = min(20, self._ray_ev_stock_active_frames + 1) if ready else 0
+    if self._ray_ev_stock_active_frames >= 20:
+      if not self._ray_ev_main_on or self._cruise_cancel_state:
+        self._add_log("Ray stock cruise: synchronized")
+      self._ray_ev_main_on = True
+      self._cruise_cancel_state = False
+
   def _update_cruise_buttons(self, CS, CC, v_cruise_kph):
     if self.is_ray_ev:
+      stock_active = self._ray_ev_stock_active(CS)
       self._ray_driver_override_frames = max(0, self._ray_driver_override_frames - 1)
       # Cancel the remembered automatic target on either edge, including
       # paths that return before the assist update (held CANCEL and +/-).
@@ -585,7 +610,8 @@ class VCruiseCarrot:
         self._ray_stock_restore_kph = 0.0
         self._ray_lead_clear_frames = 0
         self._ray_lead_pause.reset()
-      if CS.brakePressed:
+      if CS.brakePressed or CS.brakeHoldActive:
+        self._ray_ev_stock_sync_blocked = True
         self._cruise_cancel_state = True
         self._cruise_ready = False
       for b in CS.buttonEvents:
@@ -597,10 +623,12 @@ class VCruiseCarrot:
         elif b.type == ButtonType.cancel:
           self._ray_ev_cancel_pressed = b.pressed
           if b.pressed:
-            self._ray_ev_cancel_pressed_while_enabled = CC.enabled
+            self._ray_ev_cancel_pressed_while_enabled = stock_active is not False
             self._ray_ev_cancel_long_pressed = False
         elif b.type == ButtonType.mainCruise and b.pressed:
-          self._ray_ev_main_pressed_while_enabled = CC.enabled
+          self._ray_ev_main_pressed_while_enabled = stock_active is not False
+
+      self._sync_ray_ev_stock_cruise(CS, stock_active)
 
     button_kph, button_type, long_pressed = self._prepare_buttons(CS, v_cruise_kph)
 
@@ -609,6 +637,7 @@ class VCruiseCarrot:
       # Do not let an automatic or remote enable request replace it.
       self._ray_ev_cancel_long_pressed |= long_pressed
       self._activate_cruise = -1
+      self._ray_ev_stock_sync_blocked = True
       self._cruise_cancel_state = True
       self._cruise_ready = False
       self._paddle_decel_active = False
@@ -621,9 +650,14 @@ class VCruiseCarrot:
     v_cruise_kph, button_type, long_pressed = self._carrot_command(v_cruise_kph, button_type, long_pressed)
 
     if self.is_ray_ev and button_type in (ButtonType.accelCruise, ButtonType.decelCruise):
-      if not self._ray_ev_main_on or CS.brakePressed or CS.gasPressed or CS.gearShifter != GearShifter.drive:
+      if CS.brakePressed or CS.brakeHoldActive or CS.gearShifter != GearShifter.drive or stock_active is None:
         return v_cruise_kph
-      if not CC.enabled:
+      self._ray_ev_stock_sync_blocked = False
+      if CS.gasPressed or not self._ray_ev_main_on:
+        # The physical switch can engage already-armed factory cruise after
+        # a process restart. Wait for its feedback; do not synthesize MAIN.
+        return v_cruise_kph
+      if stock_active is False:
         # Both directions SET the current speed after a pause. Only the
         # separate pause/resume switch restores the retained setpoint.
         self._activate_cruise = 2
@@ -727,7 +761,11 @@ class VCruiseCarrot:
         print("lfaButton")
       elif button_type == ButtonType.cancel:
         self._paddle_decel_active = False
-        if (self.is_ray_ev and self._ray_ev_main_on and not CC.enabled and
+        if self.is_ray_ev:
+          self._ray_ev_stock_sync_blocked = (self._ray_ev_cancel_pressed_while_enabled or
+            self._ray_ev_cancel_long_pressed or CS.brakePressed or CS.brakeHoldActive or
+            CS.gearShifter != GearShifter.drive or stock_active is None)
+        if (self.is_ray_ev and self._ray_ev_main_on and not self._ray_ev_stock_sync_blocked and
             not CS.brakePressed and not CS.gasPressed and CS.gearShifter == GearShifter.drive and
             not self._ray_ev_cancel_pressed_while_enabled and not self._ray_ev_cancel_long_pressed):
           self._pause_auto_speed_up = True
@@ -753,9 +791,10 @@ class VCruiseCarrot:
         ray_main_was_enabled = self.is_ray_ev and self._ray_ev_main_pressed_while_enabled
         if self.is_ray_ev:
           self._ray_ev_main_pressed_while_enabled = False
-        if CC.enabled or ray_main_was_enabled or (self.is_ray_ev and self._ray_ev_main_on):
+        if (ray_main_was_enabled if self.is_ray_ev else CC.enabled):
           if self.is_ray_ev:
             self._ray_ev_main_on = False
+            self._ray_ev_stock_sync_blocked = True
             # Driver OFF must bypass auto-cruise gates and take priority over
             # automatic pause/resume requests, including delayed CC feedback.
             self._activate_cruise = -1
@@ -772,7 +811,10 @@ class VCruiseCarrot:
           self._cruise_ready = True
         else:
           if self.is_ray_ev:
-            if CS.brakePressed or CS.gasPressed or CS.gearShifter != GearShifter.drive:
+            if CS.brakePressed or CS.brakeHoldActive or CS.gearShifter != GearShifter.drive or stock_active is None:
+              return v_cruise_kph
+            self._ray_ev_stock_sync_blocked = False
+            if CS.gasPressed:
               return v_cruise_kph
             self._ray_ev_main_on = True
             self._cruise_cancel_state = False

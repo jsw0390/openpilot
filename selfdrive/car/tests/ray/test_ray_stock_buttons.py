@@ -16,6 +16,8 @@ class Sequence:
     self.h._ray_ev_main_on = armed
     self.h._lat_enabled = False
     self.b.cc.enabled = enabled
+    self.b.cs.gearStep = 7 if enabled else 3
+    self.b.cs.cruiseState.speed = 40 / 3.6 if enabled else 0
     self.speed = 40.0
     self.h.v_ego_kph_set = 32.0
 
@@ -26,6 +28,8 @@ class Sequence:
     self.speed = self.h._update_cruise_buttons(self.b.cs, self.b.cc, self.speed)
     if self.h._activate_cruise:
       self.b.cc.enabled = self.h._activate_cruise > 0
+      self.b.cs.gearStep = 7 if self.b.cc.enabled else 3
+      self.b.cs.cruiseState.speed = self.speed / 3.6 if self.b.cc.enabled else 0
     return self.h._activate_cruise
 
   def press(self, button, hold=5):
@@ -81,8 +85,8 @@ def test_active_short_press_changes_one_kph_even_with_carrot_speed_mode(button, 
 
 
 @pytest.mark.parametrize('button', [BUTTONS.accelCruise, BUTTONS.decelCruise, BUTTONS.cancel])
-def test_main_off_while_paused_requires_main_again(button):
-  s = Sequence(armed=True)
+def test_main_off_while_active_requires_main_again(button):
+  s = Sequence(armed=True, enabled=True)
   assert s.press(BUTTONS.mainCruise)[-1] == -1
   assert not s.h._ray_ev_main_on
   assert all(request <= 0 for request in s.press(button))

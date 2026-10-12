@@ -19,6 +19,8 @@ METHODS = {
   '_ray_ev_resume_speed',
   '_ray_ev_set_speed',
   '_ray_ev_confirmed_stock_speed',
+  '_ray_ev_stock_active',
+  '_sync_ray_ev_stock_cruise',
   '_cruise_control',
   '_update_cruise_state',
   '_auto_speed_up',
@@ -65,6 +67,8 @@ class Fixture:
       _ray_ev_cancel_long_pressed=False,
       _ray_ev_main_pressed_while_enabled=False,
       _ray_ev_main_on=True,
+      _ray_ev_stock_sync_blocked=False,
+      _ray_ev_stock_active_frames=0,
       _ray_ev_lfa_pressed=False,
       _lfa_button_mode=0,
       _cancel_button_mode=0,
@@ -196,6 +200,8 @@ class TestRayManualOff:
   def test_explicit_main_on_clears_manual_off_latch(self):
     self.press_main()
     self.cc.enabled = False
+    self.cs.gearStep = 3
+    self.cs.cruiseState.speed = 0
     self.helper._cruise_cancel_state = True
     assert (self.press_main()[0]) == (2)
     assert not (self.helper._cruise_cancel_state)

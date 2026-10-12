@@ -94,6 +94,7 @@ class TestRayUnknownSetpoint:
     b = upper.TestRayManualOff()
     b.setup_method()
     b.cs.cruiseState.speed = 0.0
+    b.cs.gearStep = 3  # confirmed paused, rather than unknown active feedback
     b.helper._cruise_cancel_state = True
     b.cc.enabled = False
     b.tick(upper.BUTTONS.cancel, True)
